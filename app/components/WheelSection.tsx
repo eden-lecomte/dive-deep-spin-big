@@ -4,6 +4,7 @@ import type { TeamState, WheelItem, WheelSegment } from "../lib/types";
 
 type WheelSectionProps = {
   viewMode: boolean;
+  showSpin: boolean;
   rotation: number;
   spinDuration: number;
   isSpinning: boolean;
@@ -23,6 +24,7 @@ type WheelSectionProps = {
 
 export default function WheelSection({
   viewMode,
+  showSpin,
   rotation,
   spinDuration,
   isSpinning,
@@ -72,24 +74,26 @@ export default function WheelSection({
         <div className="center-cap" />
       </div>
 
-      <div className="wheel-actions">
-        <button
-          className="primary"
-          onClick={onSpin}
-          disabled={isSpinning || !itemsCount}
-        >
-          {isSpinning ? "Spinning..." : "Spin the Wheel"}
-        </button>
-        {!viewMode && (
+      {showSpin && (
+        <div className="wheel-actions">
           <button
-            className="ghost"
-            onClick={onResetRotation}
-            disabled={isSpinning}
+            className="primary"
+            onClick={onSpin}
+            disabled={isSpinning || !itemsCount}
           >
-            Reset rotation
+            {isSpinning ? "Spinning..." : "Spin the Wheel"}
           </button>
-        )}
-      </div>
+          {!viewMode && (
+            <button
+              className="ghost"
+              onClick={onResetRotation}
+              disabled={isSpinning}
+            >
+              Reset rotation
+            </button>
+          )}
+        </div>
+      )}
 
       {!viewMode && (
         <div className="result">

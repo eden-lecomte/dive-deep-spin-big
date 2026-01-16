@@ -34,7 +34,8 @@ import type {
 
 export default function Home() {
   const searchParams = useSearchParams();
-  const room = searchParams.get("room") || "default";
+  const roomParam = searchParams.get("room");
+  const room = roomParam ?? "";
   const viewParam = searchParams.get("view") === "1";
   const [items, setItems] = useLocalStorageState<WheelItem[]>(
     `wheel:items:${room}`,
@@ -91,6 +92,7 @@ export default function Home() {
     `wheel:adminPin:${room}`,
     ""
   );
+  const [showAdminAccess, setShowAdminAccess] = useState(false);
 
   const isEmptyRoom = items.length === 0;
   const canEdit = adminUnlocked || (isEmptyRoom && !adminClaimed);
@@ -208,6 +210,10 @@ export default function Home() {
   const requestSpin = useCallback(
     (source: "manual" | "param") => {
       if (!items.length || isSpinning) return;
+      if (!adminUnlocked) {
+        setStatusMessage("Only the admin can spin this room.");
+        return;
+      }
       const excluded = new Set<string>();
       if (noRepeatMode === "consecutive" && landedItemId) {
         excluded.add(landedItemId);
@@ -251,9 +257,7 @@ export default function Home() {
       }
 
       spinToItem(pick.id, targetRotation);
-      if (adminUnlocked) {
-        setVotingEnabled(false);
-      }
+      setVotingEnabled(false);
     },
     [
       adminUnlocked,
@@ -278,6 +282,7 @@ export default function Home() {
   }, [items]);
 
   useEffect(() => {
+    if (!roomParam) return;
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const wsUrl = `${protocol}://${
       window.location.host
@@ -378,6 +383,7 @@ export default function Home() {
             const pinValue = adminPin.trim();
             adminPinRef.current = pinValue;
             setAdminPinSession(pinValue);
+            setShowAdminAccess(false);
           }
           if (resultMessage) {
             setStatusMessage(resultMessage);
@@ -438,6 +444,7 @@ export default function Home() {
     adminPin,
     requestSpin,
     room,
+    roomParam,
     setAdminUnlocked,
     setItems,
     setMysteryEnabled,
@@ -684,6 +691,10 @@ export default function Home() {
   const resetAdmin = useCallback(() => {
     setAdminUnlocked(false);
     setAdminClaimed(false);
+    adminPinRef.current = "";
+    setAdminPin("");
+    setAdminPinSession("");
+    setShowAdminAccess(false);
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
@@ -693,7 +704,7 @@ export default function Home() {
       );
     }
     setStatusMessage("Admin claim reset.");
-  }, [setAdminUnlocked]);
+  }, [setAdminPinSession, setAdminUnlocked]);
 
   function updateItem(id: string, patch: Partial<WheelItem>) {
     lastItemsSourceRef.current = "local";
@@ -795,13 +806,90 @@ export default function Home() {
     setDraftItem({ label: "", weight: 1, imageUrl: "", soundUrl: "" });
   }
 
+  const [roomInput, setRoomInput] = useState("");
+
+  function createRoomCode() {
+    const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+    applyQueryParams({ room: code });
+  }
+
+  function joinRoom() {
+    const code = roomInput.trim();
+    if (!code) return;
+    applyQueryParams({ room: code });
+  }
+
+  if (!roomParam) {
+    return (
+      <div className="page room-gate">
+        <div className="room-card">
+          <h1>Join a room</h1>
+          <p className="subtle">
+            Enter a room code to join, or create a new one.
+          </p>
+          <div className="room-actions">
+            <input
+              type="text"
+              value={roomInput}
+              onChange={(event) => setRoomInput(event.target.value)}
+              placeholder="Room code"
+            />
+            <button className="primary" onClick={joinRoom}>
+              Join room
+            </button>
+          </div>
+          <button className="ghost" onClick={createRoomCode}>
+            Create new room
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const adminPopoverContent = showAdminAccess ? (
+    adminUnlocked ? (
+      <div className="admin-popover">
+        <div className="panel-block">
+          <h3>Admin</h3>
+          <p className="subtle">You are admin.</p>
+          <button className="ghost" onClick={resetAdmin}>
+            Logout admin
+          </button>
+        </div>
+      </div>
+    ) : (
+      <div className="admin-popover">
+        <AdminAccessPanel
+          userName={userName}
+          adminClaimed={adminClaimed}
+          adminPin={adminPin}
+          socketReady={socketReady}
+          onUserNameChange={setUserName}
+          onAdminPinChange={setAdminPin}
+          onClaimAdmin={claimAdmin}
+          onUnlockAdmin={unlockAdmin}
+        />
+      </div>
+    )
+  ) : null;
+
   return (
     <div className={`page ${viewParam ? "view-mode" : ""}`}>
-      <HeaderBar room={room} viewMode={viewParam} socketReady={socketReady} />
+      <HeaderBar
+        room={room}
+        viewMode={viewParam}
+        socketReady={socketReady}
+        votingEnabled={votingEnabled}
+        adminActive={adminUnlocked}
+        adminPopoverOpen={Boolean(adminPopoverContent)}
+        adminPopoverContent={adminPopoverContent}
+        onAdminClick={() => setShowAdminAccess((prev) => !prev)}
+      />
 
       <main className={`layout ${viewParam ? "view-mode" : ""}`}>
         <WheelSection
           viewMode={viewParam}
+          showSpin={adminUnlocked}
           rotation={rotation}
           spinDuration={SPIN_DURATION}
           isSpinning={isSpinning}
@@ -821,7 +909,9 @@ export default function Home() {
 
         {!viewParam && (
           <section className="panel">
-            <HelpPanel onApplyQueryParams={applyQueryParams} />
+            {adminUnlocked && (
+              <HelpPanel onApplyQueryParams={applyQueryParams} />
+            )}
 
             <PlayersPanel players={players} />
 
@@ -837,18 +927,20 @@ export default function Home() {
               />
             )}
 
-            <EditPanel
-              editLocked={editLocked}
-              canEdit={canEdit}
-              items={items}
-              draftItem={draftItem}
-              onUpdateItem={updateItem}
-              onRemoveItem={removeItem}
-              onDraftChange={setDraftItem}
-              onDraftSubmit={handleDraftSubmit}
-            />
+            {adminUnlocked && (
+              <EditPanel
+                editLocked={editLocked}
+                canEdit={canEdit}
+                items={items}
+                draftItem={draftItem}
+                onUpdateItem={updateItem}
+                onRemoveItem={removeItem}
+                onDraftChange={setDraftItem}
+                onDraftSubmit={handleDraftSubmit}
+              />
+            )}
 
-            {!adminUnlocked ? (
+            {!adminUnlocked && !adminClaimed && (
               <AdminAccessPanel
                 userName={userName}
                 adminClaimed={adminClaimed}
@@ -859,11 +951,6 @@ export default function Home() {
                 onClaimAdmin={claimAdmin}
                 onUnlockAdmin={unlockAdmin}
               />
-            ) : (
-              <div className="panel-block">
-                <h3>Admin</h3>
-                <p className="subtle">You are admin.</p>
-              </div>
             )}
 
             {adminUnlocked && (
