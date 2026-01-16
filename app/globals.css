@@ -425,6 +425,20 @@ select {
   grid-template-columns: 1fr;
 }
 
+.layout.presentation-mode {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr;
+}
+
+.layout.presentation-mode .wheel-card {
+  grid-column: 1 / -1;
+}
+
+.layout.presentation-mode .panel {
+  grid-column: 1 / -1;
+  margin-top: 24px;
+}
+
 .wheel-card,
 .panel {
   background: var(--panel);
@@ -822,14 +836,41 @@ button.ghost {
   gap: 12px;
 }
 
+.game-vote-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .game-name {
   font-weight: 600;
   font-size: 0.95rem;
+  flex: 1;
+  min-width: 0;
 }
 
 .vote-total {
   font-size: 0.85rem;
   color: var(--muted);
+  white-space: nowrap;
+}
+
+.weight-bar-container {
+  width: 100%;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.weight-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  min-width: 2px;
 }
 
 .vote-counts {
@@ -837,6 +878,46 @@ button.ghost {
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+}
+
+.vote-actions-inline {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.vote-inline {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  line-height: 1;
+  min-width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vote-inline:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.vote-inline.gold.active {
+  border-color: #ffd166;
+  background: rgba(255, 209, 102, 0.2);
+}
+
+.vote-inline.silver.active {
+  border-color: #d8dee9;
+  background: rgba(216, 222, 233, 0.2);
+}
+
+.vote-inline.bronze.active {
+  border-color: #d19a66;
+  background: rgba(209, 154, 102, 0.2);
 }
 
 .vote-badge {
@@ -939,6 +1020,14 @@ button.ghost {
   border-color: var(--success) !important;
 }
 
+.win-button.recently-awarded:disabled {
+  background: var(--success) !important;
+  color: var(--bg) !important;
+  border-color: var(--success) !important;
+  opacity: 1 !important;
+  cursor: not-allowed !important;
+}
+
 .loss-button {
   color: var(--danger) !important;
   border-color: rgba(255, 107, 129, 0.3) !important;
@@ -947,6 +1036,14 @@ button.ghost {
 .loss-button:hover:not(:disabled) {
   background: rgba(255, 107, 129, 0.15) !important;
   border-color: var(--danger) !important;
+}
+
+.loss-button.recently-awarded:disabled {
+  background: var(--danger) !important;
+  color: var(--bg) !important;
+  border-color: var(--danger) !important;
+  opacity: 1 !important;
+  cursor: not-allowed !important;
 }
 
 .player-edit-form {

@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { useState, useEffect } from "react";
 import type { CSSProperties } from "react";
 import type { TeamState, WheelItem, WheelSegment } from "../lib/types";
 
@@ -50,6 +51,31 @@ export default function WheelSection({
   const shellStyle: CSSProperties = {
     ["--wheel-rotation" as string]: `${rotation}deg`,
     ["--spin-duration" as string]: `${spinDuration}ms`,
+  };
+
+  // Track recently awarded victories to disable buttons temporarily
+  const [recentlyAwarded, setRecentlyAwarded] = useState<{
+    team: "A" | "B" | null;
+    type: "win" | "loss" | null;
+  }>({ team: null, type: null });
+
+  useEffect(() => {
+    if (recentlyAwarded.team && recentlyAwarded.type) {
+      const timer = setTimeout(() => {
+        setRecentlyAwarded({ team: null, type: null });
+      }, 3000); // 3 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [recentlyAwarded]);
+
+  const handleTeamWin = (team: "A" | "B", teamNames: string[]) => {
+    setRecentlyAwarded({ team, type: "win" });
+    onAwardTeamWin(teamNames);
+  };
+
+  const handleTeamLoss = (team: "A" | "B", teamNames: string[]) => {
+    setRecentlyAwarded({ team, type: "loss" });
+    onAwardTeamLoss(teamNames);
   };
 
   return (
@@ -133,9 +159,11 @@ export default function WheelSection({
         <div className="team-area">
           <div className="team-header">
             <p className="eyebrow">Teams</p>
-            <button className="primary" onClick={onCreateTeams}>
-              Create teams for {landedItem.label}
-            </button>
+            {adminUnlocked && (
+              <button className="primary" onClick={onCreateTeams}>
+                Create teams for {landedItem.label}
+              </button>
+            )}
           </div>
           {teamState && (
             <div className="team-grid">
@@ -145,15 +173,23 @@ export default function WheelSection({
                   {adminUnlocked && (
                     <div className="team-actions">
                       <button
-                        className="ghost win-button"
-                        onClick={() => onAwardTeamWin(teamState.teamA)}
+                        className={`ghost win-button ${recentlyAwarded.team === "A" && recentlyAwarded.type === "win" ? "recently-awarded" : ""}`}
+                        onClick={() => {
+                          const teamNames = teamState.teamA.map(n => typeof n === 'string' ? n : n.name || '');
+                          handleTeamWin("A", teamNames);
+                        }}
+                        disabled={recentlyAwarded.team === "A" && recentlyAwarded.type === "win"}
                         title="Award win to Team A"
                       >
                         🏆
                       </button>
                       <button
-                        className="ghost loss-button"
-                        onClick={() => onAwardTeamLoss(teamState.teamA)}
+                        className={`ghost loss-button ${recentlyAwarded.team === "A" && recentlyAwarded.type === "loss" ? "recently-awarded" : ""}`}
+                        onClick={() => {
+                          const teamNames = teamState.teamA.map(n => typeof n === 'string' ? n : n.name || '');
+                          handleTeamLoss("A", teamNames);
+                        }}
+                        disabled={recentlyAwarded.team === "A" && recentlyAwarded.type === "loss"}
                         title="Award loss to Team A"
                       >
                         💀
@@ -162,9 +198,10 @@ export default function WheelSection({
                   )}
                 </div>
                 <ul>
-                  {teamState.teamA.map((name) => (
-                    <li key={`a-${name}`}>{name}</li>
-                  ))}
+                  {teamState.teamA.map((name, index) => {
+                    const nameStr = typeof name === 'string' ? name : name.name || '';
+                    return <li key={`a-${nameStr}-${index}`}>{nameStr}</li>;
+                  })}
                 </ul>
               </div>
               <div className={`team-card ${teamShuffle ? "shuffle" : ""}`}>
@@ -173,15 +210,23 @@ export default function WheelSection({
                   {adminUnlocked && (
                     <div className="team-actions">
                       <button
-                        className="ghost win-button"
-                        onClick={() => onAwardTeamWin(teamState.teamB)}
+                        className={`ghost win-button ${recentlyAwarded.team === "B" && recentlyAwarded.type === "win" ? "recently-awarded" : ""}`}
+                        onClick={() => {
+                          const teamNames = teamState.teamB.map(n => typeof n === 'string' ? n : n.name || '');
+                          handleTeamWin("B", teamNames);
+                        }}
+                        disabled={recentlyAwarded.team === "B" && recentlyAwarded.type === "win"}
                         title="Award win to Team B"
                       >
                         🏆
                       </button>
                       <button
-                        className="ghost loss-button"
-                        onClick={() => onAwardTeamLoss(teamState.teamB)}
+                        className={`ghost loss-button ${recentlyAwarded.team === "B" && recentlyAwarded.type === "loss" ? "recently-awarded" : ""}`}
+                        onClick={() => {
+                          const teamNames = teamState.teamB.map(n => typeof n === 'string' ? n : n.name || '');
+                          handleTeamLoss("B", teamNames);
+                        }}
+                        disabled={recentlyAwarded.team === "B" && recentlyAwarded.type === "loss"}
                         title="Award loss to Team B"
                       >
                         💀
@@ -190,9 +235,10 @@ export default function WheelSection({
                   )}
                 </div>
                 <ul>
-                  {teamState.teamB.map((name) => (
-                    <li key={`b-${name}`}>{name}</li>
-                  ))}
+                  {teamState.teamB.map((name, index) => {
+                    const nameStr = typeof name === 'string' ? name : name.name || '';
+                    return <li key={`b-${nameStr}-${index}`}>{nameStr}</li>;
+                  })}
                 </ul>
               </div>
             </div>

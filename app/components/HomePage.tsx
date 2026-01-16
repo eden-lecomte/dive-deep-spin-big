@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import HeaderBar from "./HeaderBar";
 import WheelSection from "./WheelSection";
 import ModesPanel from "./panels/ModesPanel";
-import VotingPanel from "./panels/VotingPanel";
+import GamesListPanel from "./panels/GamesListPanel";
 import EditPanel from "./panels/EditPanel";
 import AdminAccessPanel from "./panels/AdminAccessPanel";
 import AdminControlsPanel from "./panels/AdminControlsPanel";
@@ -77,6 +77,11 @@ export default function Home() {
     `wheel:norepeat:${room}`,
     "off"
   );
+  const [presentationModeState, setPresentationMode] = useLocalStorageState<boolean>(
+    `wheel:presentation:${room}`,
+    false
+  );
+  const presentationMode = presentationModeState ?? false;
   const [userName, setUserName] = useLocalStorageState<string>(
     `wheel:username`,
     ""
@@ -212,13 +217,19 @@ export default function Home() {
     [items, landedItemId]
   );
 
-  const hiddenLabels = mysteryEnabled && !canEdit;
+  const hiddenLabels = mysteryEnabled;
   const voterNames = useMemo(
     () => Object.keys(roomVotes).filter((name) => name.trim()),
     [roomVotes]
   );
   const teamCandidates = useMemo(
-    () => (voterNames.length ? voterNames : players),
+    () => {
+      if (voterNames.length) {
+        return voterNames;
+      }
+      // Extract names from player objects
+      return players.map(p => typeof p === 'string' ? p : p.name);
+    },
     [players, voterNames]
   );
 
@@ -339,6 +350,15 @@ export default function Home() {
   useEffect(() => {
     if (!roomParam) return;
     
+    // Validate that user has a name before entering room
+    if (!userName || !userName.trim()) {
+      // Remove room parameter to go back to join screen
+      const url = new URL(window.location.href);
+      url.searchParams.delete("room");
+      window.history.replaceState({}, "", url.toString());
+      return;
+    }
+    
     // Close any existing WebSocket connection before creating a new one
     if (wsRef.current) {
       try {
@@ -443,7 +463,7 @@ export default function Home() {
           }
           if (settings) {
             suppressSettingsBroadcastRef.current = true;
-            const { mysteryEnabled, votingEnabled, noRepeatMode } = settings;
+            const { mysteryEnabled, votingEnabled, noRepeatMode, presentationMode } = settings;
             if (typeof mysteryEnabled === "boolean") {
               setMysteryEnabled(mysteryEnabled);
             }
@@ -452,6 +472,9 @@ export default function Home() {
             }
             if (noRepeatMode) {
               setNoRepeatMode(noRepeatMode);
+            }
+            if (typeof presentationMode === "boolean") {
+              setPresentationMode(presentationMode);
             }
           }
           if (clientId) {
@@ -541,7 +564,7 @@ export default function Home() {
           const { settings } = message.payload || {};
           if (settings) {
             suppressSettingsBroadcastRef.current = true;
-            const { mysteryEnabled, votingEnabled, noRepeatMode } = settings;
+            const { mysteryEnabled, votingEnabled, noRepeatMode, presentationMode } = settings;
             if (typeof mysteryEnabled === "boolean") {
               setMysteryEnabled(mysteryEnabled);
             }
@@ -550,6 +573,9 @@ export default function Home() {
             }
             if (noRepeatMode) {
               setNoRepeatMode(noRepeatMode);
+            }
+            if (typeof presentationMode === "boolean") {
+              setPresentationMode(presentationMode);
             }
           }
         }
@@ -641,6 +667,7 @@ export default function Home() {
   }, [
     room,
     roomParam,
+    userName,
     getDeviceId,
     reconnectTrigger, // Add reconnectTrigger to force reconnection
     // Note: Setters and other functions are intentionally excluded to prevent
@@ -777,6 +804,7 @@ export default function Home() {
               mysteryEnabled,
               votingEnabled,
               noRepeatMode,
+              presentationMode,
             },
             adminPin: adminPinRef.current || adminPinSession || adminPin.trim(),
           },
@@ -789,6 +817,7 @@ export default function Home() {
     canEdit,
     mysteryEnabled,
     noRepeatMode,
+    presentationMode,
     socketReady,
     votingEnabled,
   ]);
@@ -1510,7 +1539,7 @@ export default function Home() {
       )}
 
       <main>
-        <div className={`layout ${viewParam ? "view-mode" : ""}`}>
+        <div className={`layout ${viewParam ? "view-mode" : ""} ${presentationMode ? "presentation-mode" : ""}`}>
           <WheelSection
             viewMode={viewParam}
             showSpin={adminUnlocked}
@@ -1536,18 +1565,15 @@ export default function Home() {
 
           {!viewParam && (
             <section className="panel">
-              {votingEnabled && (
-                <VotingPanel
-                  items={items}
-                  hiddenLabels={hiddenLabels}
-                  votesByItem={votesByItem}
-                  voteSummary={voteSummary}
-                  userName={userName}
-                  roomVotes={effectiveRoomVotes}
-                  onUserNameChange={setUserName}
-                  onSetVote={setVote}
-                />
-              )}
+              <GamesListPanel
+                items={items}
+                hiddenLabels={false}
+                roomVotes={effectiveRoomVotes}
+                votingEnabled={votingEnabled}
+                votesByItem={votesByItem}
+                voteSummary={voteSummary}
+                onSetVote={setVote}
+              />
 
               {adminUnlocked && (
                 <>
@@ -1555,10 +1581,12 @@ export default function Home() {
                     votingEnabled={votingEnabled}
                     mysteryEnabled={mysteryEnabled}
                     noRepeatMode={noRepeatMode}
+                    presentationMode={presentationMode}
                     controlsEnabled={adminUnlocked}
                     onVotingToggle={setVotingEnabled}
                     onMysteryToggle={setMysteryEnabled}
                     onNoRepeatModeChange={setNoRepeatMode}
+                    onPresentationModeToggle={setPresentationMode}
                     onResetSessionHistory={() => setUsedItemIds([])}
                   />
                   <AdminControlsPanel

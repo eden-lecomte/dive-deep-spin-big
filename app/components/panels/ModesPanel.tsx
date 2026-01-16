@@ -4,10 +4,12 @@ type ModesPanelProps = {
   votingEnabled: boolean;
   mysteryEnabled: boolean;
   noRepeatMode: NoRepeatMode;
+  presentationMode: boolean;
   controlsEnabled: boolean;
   onVotingToggle: (value: boolean) => void;
   onMysteryToggle: (value: boolean) => void;
   onNoRepeatModeChange: (value: NoRepeatMode) => void;
+  onPresentationModeToggle: (value: boolean) => void;
   onResetSessionHistory: () => void;
 };
 
@@ -15,10 +17,12 @@ export default function ModesPanel({
   votingEnabled,
   mysteryEnabled,
   noRepeatMode,
+  presentationMode,
   controlsEnabled,
   onVotingToggle,
   onMysteryToggle,
   onNoRepeatModeChange,
+  onPresentationModeToggle,
   onResetSessionHistory,
 }: ModesPanelProps) {
   return (
@@ -42,6 +46,15 @@ export default function ModesPanel({
             disabled={!controlsEnabled}
           />
           Mystery mode
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={presentationMode}
+            onChange={(event) => onPresentationModeToggle(event.target.checked)}
+            disabled={!controlsEnabled}
+          />
+          Presentation mode
         </label>
       </div>
       <div className="toggle-row">
