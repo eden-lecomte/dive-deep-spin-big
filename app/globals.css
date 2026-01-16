@@ -88,9 +88,24 @@ select {
 .header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
   margin-bottom: 24px;
+}
+
+.header-players {
+  margin-top: 12px;
+}
+
+.players-list-header {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0;
+  padding: 0;
 }
 
 .disconnect-banner {
@@ -139,6 +154,43 @@ select {
 
 .disconnect-banner-content button:hover {
   opacity: 1;
+}
+
+.toast-container {
+  position: fixed;
+  top: 0;
+  right: 24px;
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  pointer-events: none;
+}
+
+.toast-notification {
+  position: relative;
+  animation: slideDown 0.3s ease-out;
+  pointer-events: auto;
+}
+
+.toast-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: rgba(107, 231, 183, 0.5);
+  border: 1px solid rgba(107, 231, 183, 0.6);
+  box-shadow: 0 8px 24px rgba(107, 231, 183, 0.3);
+  color: var(--success);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.toast-icon {
+  color: var(--success);
+  font-size: 1.1rem;
+  flex-shrink: 0;
 }
 
 .modal-overlay {
@@ -201,6 +253,81 @@ select {
   display: flex;
   gap: 12px;
   justify-content: flex-end;
+}
+
+.victory-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.victory-modal-content {
+  width: 90vw;
+  max-width: 800px;
+  height: 80vh;
+  max-height: 600px;
+  background: var(--panel);
+  border-radius: 24px;
+  border: 2px solid var(--accent);
+  box-shadow: 0 24px 60px rgba(111, 156, 255, 0.3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  padding: 48px;
+  animation: slideUp 0.4s ease-out;
+}
+
+.victory-gif-container {
+  width: 100%;
+  height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  /* Space reserved for victory gif */
+}
+
+.victory-winners {
+  text-align: center;
+}
+
+.victory-title {
+  font-size: 3rem;
+  margin: 0 0 24px 0;
+  background: linear-gradient(120deg, #6f9cff, #b08cff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+}
+
+.victory-names {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+}
+
+.victory-name {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+  padding: 12px 24px;
+  background: rgba(111, 156, 255, 0.15);
+  border-radius: 12px;
+  border: 1px solid rgba(111, 156, 255, 0.3);
 }
 
 .header h1 {
@@ -376,10 +503,10 @@ select {
   background: rgba(0, 0, 0, 0.35);
   color: #fff;
   text-align: center;
-  max-width: 120px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  max-width: 140px;
+  line-height: 1.3;
+  word-wrap: break-word;
+  white-space: normal;
 }
 
 .wheel-shell.spinning .wheel-label {
@@ -438,6 +565,7 @@ button.ghost {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text);
+  position: relative;
 }
 
 .result {
@@ -505,8 +633,21 @@ button.ghost {
   animation: teamPulse 0.6s ease-in-out infinite;
 }
 
-.team-card h3 {
+.team-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 8px;
+}
+
+.team-card h3 {
+  margin: 0;
+}
+
+.team-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .team-card ul {
@@ -753,11 +894,59 @@ button.ghost {
 .player-name {
   font-weight: 500;
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.connection-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.connection-indicator.connected {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+
+.connection-indicator.disconnected {
+  background: var(--danger);
+  box-shadow: 0 0 6px var(--danger);
+  opacity: 0.6;
+}
+
+.player-stats {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: normal;
 }
 
 .player-actions {
   display: flex;
   gap: 8px;
+}
+
+.win-button {
+  color: var(--success) !important;
+  border-color: rgba(107, 231, 183, 0.3) !important;
+}
+
+.win-button:hover:not(:disabled) {
+  background: rgba(107, 231, 183, 0.15) !important;
+  border-color: var(--success) !important;
+}
+
+.loss-button {
+  color: var(--danger) !important;
+  border-color: rgba(255, 107, 129, 0.3) !important;
+}
+
+.loss-button:hover:not(:disabled) {
+  background: rgba(255, 107, 129, 0.15) !important;
+  border-color: var(--danger) !important;
 }
 
 .player-edit-form {
@@ -788,6 +977,19 @@ button.danger:disabled {
   opacity: 0.4;
   color: var(--muted);
   cursor: not-allowed;
+}
+
+button.pending-confirm {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }
 
 .players-list {
@@ -834,13 +1036,13 @@ button.danger:disabled {
 
 .edit-list {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .edit-row {
   display: grid;
-  gap: 8px;
-  grid-template-columns: 1.2fr 0.4fr 1fr 1fr auto;
+  gap: 12px;
+  grid-template-columns: 1.2fr 0.4fr 1fr 1fr 120px;
   align-items: center;
 }
 
@@ -848,8 +1050,49 @@ button.danger:disabled {
   width: 100%;
 }
 
+.edit-row button {
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+}
+
 .add-row {
-  grid-template-columns: 1.2fr 0.4fr 1fr 1fr auto;
+  grid-template-columns: 1.2fr 0.4fr 1fr 1fr 120px;
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: 20px 12px 24px;
+  }
+  
+  .header {
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  .header .status-group {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  
+  .header .status-group > * {
+    flex: 0 1 auto;
+  }
+  
+  .panel,
+  .wheel-card {
+    padding: 16px;
+  }
+  
+  .panel-block {
+    padding: 12px;
+  }
+  
+  .wheel-shell {
+    padding: 16px;
+  }
 }
 
 @media (max-width: 1024px) {

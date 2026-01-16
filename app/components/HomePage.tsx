@@ -9,8 +9,8 @@ import VotingPanel from "./panels/VotingPanel";
 import EditPanel from "./panels/EditPanel";
 import AdminAccessPanel from "./panels/AdminAccessPanel";
 import AdminControlsPanel from "./panels/AdminControlsPanel";
-import PlayersPanel from "./panels/PlayersPanel";
 import PlayerManagementPanel from "./panels/PlayerManagementPanel";
+import VictoryModal from "./VictoryModal";
 import {
   COLORS,
   DEFAULT_ITEMS,
@@ -37,9 +37,28 @@ export default function Home() {
   const roomParam = searchParams.get("room");
   const room = roomParam ?? "";
   const viewParam = searchParams.get("view") === "1";
+  
+  // Get default items from localStorage or use DEFAULT_ITEMS
+  // Recompute when room changes to get fresh defaults for new rooms
+  const defaultItems = useMemo(() => {
+    if (typeof window === "undefined") return DEFAULT_ITEMS;
+    const saved = localStorage.getItem("wheel:defaultItems");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch {
+        // Invalid JSON, use default
+      }
+    }
+    return DEFAULT_ITEMS;
+  }, [room]); // Recompute when room changes to get fresh defaults
+
   const [items, setItems] = useLocalStorageState<WheelItem[]>(
     `wheel:items:${room}`,
-    DEFAULT_ITEMS
+    defaultItems
   );
   const [rotation, setRotation] = useState(0);
   const rotationRef = useRef(0);
@@ -82,12 +101,19 @@ export default function Home() {
   const [multipleConnectionsPrompt, setMultipleConnectionsPrompt] = useState<{
     message: string;
   } | null>(null);
+  const [victoryWinners, setVictoryWinners] = useState<string[] | null>(null);
+  const [toastMessages, setToastMessages] = useState<Array<{ id: string; message: string }>>([]);
+  const [reconnectTrigger, setReconnectTrigger] = useState(0);
   const [teamState, setTeamState] = useState<TeamState | null>(null);
   const [teamShuffle, setTeamShuffle] = useState(false);
   const [adminClaimed, setAdminClaimed] = useState(false);
   const [adminName, setAdminName] = useState<string | null>(null);
   const [adminPin, setAdminPin] = useState("");
-  const [players, setPlayers] = useState<string[]>([]);
+  const [players, setPlayers] = useState<Array<{ name: string; connected: boolean }>>([]);
+  const [playerStats, setPlayerStats] = useLocalStorageState<Record<string, { wins: number; losses: number }>>(
+    `wheel:playerStats:${room}`,
+    {}
+  );
   const lastItemsSourceRef = useRef<"local" | "server" | null>(null);
   const itemsRef = useRef<WheelItem[]>(items);
   const suppressSettingsBroadcastRef = useRef(false);
@@ -312,12 +338,24 @@ export default function Home() {
 
   useEffect(() => {
     if (!roomParam) return;
+    
+    // Close any existing WebSocket connection before creating a new one
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch (e) {
+        console.log("[CLIENT] Error closing existing WebSocket:", e);
+      }
+      wsRef.current = null;
+    }
+    
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const deviceId = getDeviceId();
     const wsUrl = `${protocol}://${
       window.location.host
     }/ws?room=${encodeURIComponent(room)}&deviceId=${encodeURIComponent(deviceId)}`;
 
+    console.log("[CLIENT] Creating new WebSocket connection to:", wsUrl);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -326,6 +364,15 @@ export default function Home() {
       setDisconnectMessage(null); // Clear disconnect message on successful connection
       if (pendingSpinRef.current) {
         pendingSpinRef.current = false;
+      }
+      // Send presence message to restore/establish session
+      if (userName) {
+        ws.send(
+          JSON.stringify({
+            type: "presence",
+            payload: { name: userName },
+          })
+        );
       }
       // If admin was previously unlocked, restore admin status on reconnect
       // Only auto-restore if we haven't just attempted a manual unlock
@@ -384,7 +431,11 @@ export default function Home() {
             setAdminName(adminName);
           }
           if (Array.isArray(players)) {
-            setPlayers(players);
+            // Handle both old format (strings) and new format (objects with name/connected)
+            const normalizedPlayers = players.map(p => 
+              typeof p === 'string' ? { name: p, connected: true } : p
+            );
+            setPlayers(normalizedPlayers);
           }
           if (Array.isArray(items)) {
             lastItemsSourceRef.current = "server";
@@ -451,7 +502,11 @@ export default function Home() {
         if (message?.type === "presence") {
           const { players } = message.payload || {};
           if (Array.isArray(players)) {
-            setPlayers(players);
+            // Handle both old format (strings) and new format (objects with name/connected)
+            const normalizedPlayers = players.map(p => 
+              typeof p === 'string' ? { name: p, connected: true } : p
+            );
+            setPlayers(normalizedPlayers);
           }
         }
         if (message?.type === "presence_error") {
@@ -508,6 +563,26 @@ export default function Home() {
           const { success, message: resultMessage } = message.payload || {};
           if (resultMessage) {
             setStatusMessage(resultMessage);
+          }
+        }
+        if (message?.type === "victory") {
+          const { winners } = message.payload || {};
+          console.log("[CLIENT] Received victory message:", message);
+          console.log("[CLIENT] Winners extracted:", winners);
+          console.log("[CLIENT] Winners is array?", Array.isArray(winners));
+          console.log("[CLIENT] Winners length:", winners?.length);
+          if (Array.isArray(winners) && winners.length > 0) {
+            console.log("[CLIENT] Accumulating victory winners");
+            // Accumulate winners instead of replacing them
+            setVictoryWinners((prev) => {
+              if (!prev) return winners;
+              // Combine previous and new winners, keeping unique names only
+              const combined = [...prev, ...winners];
+              return Array.from(new Set(combined));
+            });
+            console.log("[CLIENT] Victory winners state updated");
+          } else {
+            console.log("[CLIENT] Victory message invalid - winners not array or empty");
           }
         }
       } catch {
@@ -567,10 +642,72 @@ export default function Home() {
     room,
     roomParam,
     getDeviceId,
+    reconnectTrigger, // Add reconnectTrigger to force reconnection
     // Note: Setters and other functions are intentionally excluded to prevent
     // unnecessary WebSocket reconnections. The event handlers capture the
     // latest values via closures, and setState functions are stable.
   ]);
+
+  // Auto-reconnect when page becomes visible (e.g., phone comes back to foreground)
+  useEffect(() => {
+    if (!roomParam) return;
+
+    const handleVisibilityChange = () => {
+      console.log("[CLIENT] Visibility changed:", document.visibilityState, "socketReady:", socketReady);
+      // Only reconnect if page becomes visible and WebSocket is not ready
+      if (document.visibilityState === "visible" && !socketReady) {
+        const ws = wsRef.current;
+        const wsState = ws ? ws.readyState : 'null';
+        console.log("[CLIENT] WebSocket state:", wsState, "disconnectMessage:", disconnectMessage);
+        
+        // Check if WebSocket is closed, closing, or null (cleaned up)
+        const isDisconnected = !ws || 
+          ws.readyState === WebSocket.CLOSED || 
+          ws.readyState === WebSocket.CLOSING;
+        
+        if (isDisconnected) {
+          // Check if we have a disconnect message that indicates we shouldn't reconnect
+          const shouldReconnect = !disconnectMessage || 
+            (!disconnectMessage.includes("kicked") && 
+             !disconnectMessage.includes("Multiple connections"));
+          
+          if (shouldReconnect) {
+            console.log("[CLIENT] Page visible, WebSocket disconnected, triggering reconnect...");
+            // Close any existing connection first
+            if (ws) {
+              try {
+                ws.close();
+              } catch (e) {
+                console.log("[CLIENT] Error closing old WebSocket:", e);
+              }
+            }
+            // Trigger reconnection by incrementing reconnectTrigger
+            // This will cause the WebSocket useEffect to re-run
+            setReconnectTrigger(prev => prev + 1);
+          } else {
+            console.log("[CLIENT] Not reconnecting - user was kicked or has multiple connections");
+          }
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    
+    // Also check on focus (some browsers may not fire visibilitychange reliably)
+    const handleFocus = () => {
+      if (!socketReady && roomParam) {
+        console.log("[CLIENT] Window focused, checking connection...");
+        handleVisibilityChange();
+      }
+    };
+    
+    window.addEventListener("focus", handleFocus);
+    
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [roomParam, socketReady, disconnectMessage]);
 
   useEffect(() => {
     if (!spinTriggerHandled.current) {
@@ -790,6 +927,13 @@ export default function Home() {
     setStatusMessage("Wheel items reset to defaults.");
   }, [setItems]);
 
+  const saveAsDefault = useCallback(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("wheel:defaultItems", JSON.stringify(items));
+      setStatusMessage("Current items saved as default for new rooms.");
+    }
+  }, [items]);
+
   const resetHistory = useCallback(() => {
     setUsedItemIds([]);
     setStatusMessage("No-repeat history cleared.");
@@ -847,6 +991,128 @@ export default function Home() {
       );
     },
     [adminUnlocked]
+  );
+
+  const awardPlayerWin = useCallback(
+    (playerName: string) => {
+      if (!adminUnlocked) {
+        setStatusMessage("You must be unlocked as admin to perform this action.");
+        return;
+      }
+      setPlayerStats((prev) => {
+        const current = prev[playerName] || { wins: 0, losses: 0 };
+        return {
+          ...prev,
+          [playerName]: { ...current, wins: current.wins + 1 },
+        };
+      });
+      // Show toast notification for admin
+      const toastId = `toast-${Date.now()}-${Math.random()}`;
+      setToastMessages((prev) => [...prev, { id: toastId, message: `Victory awarded to ${playerName}!` }]);
+      // Auto-clear toast after 3 seconds
+      setTimeout(() => {
+        setToastMessages((prev) => prev.filter((t) => t.id !== toastId));
+      }, 3000);
+      // Broadcast victory to all clients (including this one via broadcast)
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        const victoryMessage = JSON.stringify({
+          type: "victory",
+          payload: { winners: [playerName] },
+        });
+        console.log("Sending victory message:", victoryMessage);
+        wsRef.current.send(victoryMessage);
+      } else {
+        console.log("WebSocket not ready, cannot send victory message");
+      }
+    },
+    [adminUnlocked, setPlayerStats]
+  );
+
+  const awardPlayerLoss = useCallback(
+    (playerName: string) => {
+      if (!adminUnlocked) {
+        setStatusMessage("You must be unlocked as admin to perform this action.");
+        return;
+      }
+      setPlayerStats((prev) => {
+        const current = prev[playerName] || { wins: 0, losses: 0 };
+        return {
+          ...prev,
+          [playerName]: { ...current, losses: current.losses + 1 },
+        };
+      });
+    },
+    [adminUnlocked, setPlayerStats]
+  );
+
+  const awardTeamWin = useCallback(
+    (team: string[]) => {
+      if (!adminUnlocked) {
+        setStatusMessage("You must be unlocked as admin to perform this action.");
+        return;
+      }
+      setPlayerStats((prev) => {
+        const updated = { ...prev };
+        team.forEach((playerName) => {
+          const current = updated[playerName] || { wins: 0, losses: 0 };
+          updated[playerName] = { ...current, wins: current.wins + 1 };
+        });
+        return updated;
+      });
+      // Show toast notification for admin
+      const teamNames = team.join(", ");
+      const toastId = `toast-${Date.now()}-${Math.random()}`;
+      setToastMessages((prev) => [...prev, { id: toastId, message: `Victory awarded to ${teamNames}!` }]);
+      // Auto-clear toast after 3 seconds
+      setTimeout(() => {
+        setToastMessages((prev) => prev.filter((t) => t.id !== toastId));
+      }, 3000);
+      // Broadcast victory to all clients (including this one via broadcast)
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        const victoryMessage = JSON.stringify({
+          type: "victory",
+          payload: { winners: team },
+        });
+        console.log("Sending victory message:", victoryMessage);
+        wsRef.current.send(victoryMessage);
+      } else {
+        console.log("WebSocket not ready, cannot send victory message");
+      }
+    },
+    [adminUnlocked, setPlayerStats]
+  );
+
+  const awardTeamLoss = useCallback(
+    (team: string[]) => {
+      if (!adminUnlocked) {
+        setStatusMessage("You must be unlocked as admin to perform this action.");
+        return;
+      }
+      setPlayerStats((prev) => {
+        const updated = { ...prev };
+        team.forEach((playerName) => {
+          const current = updated[playerName] || { wins: 0, losses: 0 };
+          updated[playerName] = { ...current, losses: current.losses + 1 };
+        });
+        return updated;
+      });
+    },
+    [adminUnlocked, setPlayerStats]
+  );
+
+  const resetPlayerStats = useCallback(
+    (playerName: string) => {
+      if (!adminUnlocked) {
+        setStatusMessage("You must be unlocked as admin to perform this action.");
+        return;
+      }
+      setPlayerStats((prev) => {
+        const updated = { ...prev };
+        delete updated[playerName];
+        return updated;
+      });
+    },
+    [adminUnlocked, setPlayerStats]
   );
 
   const resetAdmin = useCallback(() => {
@@ -1147,6 +1413,8 @@ export default function Home() {
         adminActive={adminUnlocked}
         adminPopoverOpen={Boolean(adminPopoverContent)}
         adminPopoverContent={adminPopoverContent}
+        players={players}
+        adminName={adminName}
         onAdminClick={() => setShowAdminAccess((prev) => !prev)}
         onLeaveRoom={leaveRoom}
       />
@@ -1164,6 +1432,23 @@ export default function Home() {
               ✕
             </button>
           </div>
+        </div>
+      )}
+
+      {toastMessages.length > 0 && (
+        <div className="toast-container">
+          {toastMessages.map((toast, index) => (
+            <div
+              key={toast.id}
+              className="toast-notification"
+              style={{ top: `${24 + index * 45}px` }}
+            >
+              <div className="toast-content">
+                <span className="toast-icon">✓</span>
+                <span>{toast.message}</span>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -1217,6 +1502,13 @@ export default function Home() {
         </div>
       )}
 
+      {victoryWinners && !adminUnlocked && (
+        <VictoryModal
+          winners={victoryWinners}
+          onClose={() => setVictoryWinners(null)}
+        />
+      )}
+
       <main>
         <div className={`layout ${viewParam ? "view-mode" : ""}`}>
           <WheelSection
@@ -1234,15 +1526,16 @@ export default function Home() {
             teamState={teamState}
             teamShuffle={teamShuffle}
             statusMessage={statusMessage}
+            adminUnlocked={adminUnlocked}
             onSpin={() => requestSpin("manual")}
             onResetRotation={() => setRotation(0)}
             onCreateTeams={createTeams}
+            onAwardTeamWin={awardTeamWin}
+            onAwardTeamLoss={awardTeamLoss}
           />
 
           {!viewParam && (
             <section className="panel">
-              <PlayersPanel players={players} adminName={adminName} />
-
               {votingEnabled && (
                 <VotingPanel
                   items={items}
@@ -1268,13 +1561,6 @@ export default function Home() {
                     onNoRepeatModeChange={setNoRepeatMode}
                     onResetSessionHistory={() => setUsedItemIds([])}
                   />
-                  <PlayerManagementPanel
-                    players={players}
-                    socketReady={socketReady}
-                    adminName={adminName}
-                    onRenamePlayer={renamePlayer}
-                    onKickPlayer={kickPlayer}
-                  />
                   <AdminControlsPanel
                     onResetVotes={resetVotes}
                     onResetHistory={resetHistory}
@@ -1299,6 +1585,23 @@ export default function Home() {
               onRemoveItem={removeItem}
               onDraftChange={setDraftItem}
               onDraftSubmit={handleDraftSubmit}
+              onSaveAsDefault={saveAsDefault}
+            />
+          </div>
+        )}
+
+        {!viewParam && adminUnlocked && (
+          <div className="edit-panel-fullwidth">
+            <PlayerManagementPanel
+              players={players}
+              socketReady={socketReady}
+              adminName={adminName}
+              playerStats={playerStats}
+              onRenamePlayer={renamePlayer}
+              onKickPlayer={kickPlayer}
+              onAwardWin={awardPlayerWin}
+              onAwardLoss={awardPlayerLoss}
+              onResetStats={resetPlayerStats}
             />
           </div>
         )}

@@ -9,6 +9,7 @@ type EditPanelProps = {
   onRemoveItem: (id: string) => void;
   onDraftChange: (draft: DraftItem) => void;
   onDraftSubmit: () => void;
+  onSaveAsDefault?: () => void;
 };
 
 export default function EditPanel({
@@ -20,14 +21,22 @@ export default function EditPanel({
   onRemoveItem,
   onDraftChange,
   onDraftSubmit,
+  onSaveAsDefault,
 }: EditPanelProps) {
   return (
     <div className="panel-block">
       <div className="panel-header">
-        <h3>Edit mode</h3>
-        {editLocked && (
-          <span className="warning-pill">Locked (admin required)</span>
-        )}
+        <h3>Games list</h3>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          {onSaveAsDefault && (
+            <button className="ghost" onClick={onSaveAsDefault} title="Save current items as default for new rooms">
+              Save as default
+            </button>
+          )}
+          {editLocked && (
+            <span className="warning-pill">Locked (admin required)</span>
+          )}
+        </div>
       </div>
       {canEdit ? (
         <div className="edit-area">

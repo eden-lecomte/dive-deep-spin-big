@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const http = require("http");
 const next = require("next");
-const { WebSocketServer } = require("ws");
+const { WebSocketServer, WebSocket } = require("ws");
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
@@ -55,11 +55,27 @@ function getRoomClients(room) {
 
 function broadcast(room, message) {
   const payload = JSON.stringify(message);
-  for (const client of getRoomClients(room)) {
-    if (client.readyState === client.OPEN) {
-      client.send(payload);
+  const roomClients = getRoomClients(room);
+  let sentCount = 0;
+  const OPEN_STATE = WebSocket.OPEN || 1; // WebSocket.OPEN is 1
+  console.log(`[${room}] Broadcasting message type: ${message.type} to ${roomClients.size} clients`);
+  for (const client of roomClients) {
+    const isOpen = client.readyState === OPEN_STATE;
+    console.log(`[${room}] Client ${client.clientId || 'unknown'} - readyState: ${client.readyState}, OPEN_STATE: ${OPEN_STATE}, isOpen: ${isOpen}`);
+    if (isOpen) {
+      try {
+        client.send(payload);
+        sentCount++;
+        console.log(`[${room}] ✓ Sent message to client ${client.clientId || 'unknown'}`);
+      } catch (error) {
+        console.error(`[${room}] ✗ Error sending message to client ${client.clientId || 'unknown'}:`, error);
+      }
+    } else {
+      console.log(`[${room}] ✗ Client ${client.clientId || 'unknown'} not ready, state: ${client.readyState}`);
     }
   }
+  console.log(`[${room}] Broadcast complete: sent to ${sentCount}/${roomClients.size} clients`);
+  return sentCount;
 }
 
 function getPresence(room) {
@@ -71,7 +87,31 @@ function getPresence(room) {
 
 function broadcastPresence(room) {
   const presence = getPresence(room);
-  const players = Array.from(presence.values()).filter(Boolean);
+  const clients = getRoomClients(room);
+  const connectedClientIds = new Set(Array.from(clients).map(c => c.clientId));
+  
+  // Build players array with connection status
+  const allPlayers = Array.from(presence.entries())
+    .filter(([_, playerData]) => playerData && (typeof playerData === 'string' ? playerData : playerData.name))
+    .map(([clientId, playerData]) => {
+      const name = typeof playerData === 'string' ? playerData : playerData.name;
+      const connected = connectedClientIds.has(clientId);
+      return { name, connected, clientId };
+    });
+  
+  // Deduplicate by name - if same name appears multiple times, keep the connected one
+  const playersByName = new Map();
+  for (const player of allPlayers) {
+    const existing = playersByName.get(player.name);
+    if (!existing || (player.connected && !existing.connected)) {
+      playersByName.set(player.name, { name: player.name, connected: player.connected });
+    }
+  }
+  
+  const players = Array.from(playersByName.values());
+  
+  console.log(`[${room}] Broadcasting presence: ${players.length} players`, players.map(p => `${p.name} (${p.connected ? 'connected' : 'disconnected'})`));
+  
   broadcast(room, {
     type: "presence",
     payload: { players },
@@ -138,7 +178,17 @@ app.prepare().then(() => {
     const adminInfo = adminByRoom.get(room);
     const adminClaimed = !!adminInfo;
     const adminName = adminInfo?.name || null;
-    const players = Array.from(getPresence(room).values()).filter(Boolean);
+    const presence = getPresence(room);
+    const clients = getRoomClients(room);
+    const connectedClientIds = new Set(Array.from(clients).map(c => c.clientId));
+    // Build players array with connection status
+    const players = Array.from(presence.entries())
+      .filter(([_, playerData]) => playerData && (typeof playerData === 'string' ? playerData : playerData.name))
+      .map(([clientId, playerData]) => {
+        const name = typeof playerData === 'string' ? playerData : playerData.name;
+        const connected = connectedClientIds.has(clientId);
+        return { name, connected };
+      });
     const items = itemsByRoom.get(room) || null;
     const settings = settingsByRoom.get(room) || null;
 
@@ -153,13 +203,13 @@ app.prepare().then(() => {
           },
         })
       );
-      // Store connection info for later use
+      // Store connection info for later use (players already in new format with connection status)
       ws.pendingRoomData = {
         roomVotes,
         teamState,
         adminClaimed,
         adminName,
-        players,
+        players, // Already in new format { name, connected }
         items,
         settings,
       };
@@ -197,7 +247,9 @@ app.prepare().then(() => {
       let message;
       try {
         message = JSON.parse(data.toString());
+        console.log(`[${room}] Received message type:`, message?.type, "from client:", ws.clientId, "isAdmin:", ws.isAdmin);
       } catch {
+        console.log(`[${room}] Failed to parse message from client:`, ws.clientId);
         return;
       }
 
@@ -275,6 +327,48 @@ app.prepare().then(() => {
         return;
       }
 
+      if (message?.type === "victory") {
+        const { winners } = message.payload || {};
+        console.log(`[${room}] ===== VICTORY MESSAGE RECEIVED =====`);
+        console.log(`[${room}] From client: ${ws.clientId}, isAdmin: ${ws.isAdmin}`);
+        console.log(`[${room}] Winners:`, winners);
+        if (!ws.isAdmin) {
+          console.log(`[${room}] ✗ Victory rejected: not admin`);
+          ws.send(
+            JSON.stringify({
+              type: "victory_result",
+              payload: { success: false, message: "Admin required." },
+            })
+          );
+          return;
+        }
+        if (!Array.isArray(winners) || winners.length === 0) {
+          console.log(`[${room}] ✗ Victory rejected: invalid winners`);
+          ws.send(
+            JSON.stringify({
+              type: "victory_result",
+              payload: { success: false, message: "Invalid winners." },
+            })
+          );
+          return;
+        }
+        // Broadcast victory to all clients in the room
+        const roomClients = getRoomClients(room);
+        console.log(`[${room}] ✓ Victory validated, broadcasting to ${roomClients.size} clients`);
+        console.log(`[${room}] Room clients details:`, Array.from(roomClients).map(c => ({ 
+          clientId: c.clientId, 
+          readyState: c.readyState, 
+          isAdmin: c.isAdmin 
+        })));
+        const victoryMessage = {
+          type: "victory",
+          payload: { winners },
+        };
+        const sentCount = broadcast(room, victoryMessage);
+        console.log(`[${room}] ===== VICTORY BROADCAST COMPLETE: ${sentCount}/${roomClients.size} =====`);
+        return;
+      }
+
 
       if (message?.type === "presence") {
         const { name } = message.payload || {};
@@ -285,23 +379,26 @@ app.prepare().then(() => {
           return;
         }
         
-        // Check if name is already taken by another client
         const nameTrimmed = name.trim();
         const currentName = presence.get(ws.clientId);
         
         // If the name hasn't changed, just update it (allows case changes, trimming, etc.)
-        if (currentName && currentName.trim().toLowerCase() === nameTrimmed.toLowerCase()) {
+        if (currentName && (typeof currentName === 'string' ? currentName.trim() : currentName.name?.trim()) === nameTrimmed) {
           presence.set(ws.clientId, nameTrimmed);
           broadcastPresence(room);
           return;
         }
         
-        // Check if the new name is taken by another client
+        // Check if the new name is taken by another connected client
+        const clients = getRoomClients(room);
+        const connectedClientIds = new Set(Array.from(clients).map(c => c.clientId));
         let nameTaken = false;
-        for (const [clientId, existingName] of presence.entries()) {
+        for (const [clientId, existingData] of presence.entries()) {
           // Skip checking against the current client
           if (clientId === ws.clientId) continue;
-          if (existingName && existingName.trim().toLowerCase() === nameTrimmed.toLowerCase()) {
+          const existingName = typeof existingData === 'string' ? existingData : existingData?.name;
+          // Only check against connected clients (allow disconnected players to be replaced)
+          if (existingName && existingName.trim().toLowerCase() === nameTrimmed.toLowerCase() && connectedClientIds.has(clientId)) {
             nameTaken = true;
             break;
           }
@@ -316,6 +413,16 @@ app.prepare().then(() => {
           );
           // Keep the current name in presence (don't update it)
           return;
+        }
+        
+        // Clean up any old entries with the same name (from previous disconnections)
+        for (const [clientId, existingData] of presence.entries()) {
+          if (clientId === ws.clientId) continue;
+          const existingName = typeof existingData === 'string' ? existingData : existingData?.name;
+          if (existingName && existingName.trim().toLowerCase() === nameTrimmed.toLowerCase()) {
+            // Remove old entry for this name (player reconnected)
+            presence.delete(clientId);
+          }
         }
         
         // Name is available, set it
@@ -682,13 +789,25 @@ app.prepare().then(() => {
 
     ws.on("close", () => {
       const clients = getRoomClients(room);
-      clients.delete(ws);
       const presence = getPresence(room);
-      // Only delete from presence if not already removed (e.g., by kick)
-      if (!ws.kicked) {
+      const playerName = presence.get(ws.clientId);
+      console.log(`[${room}] Client ${ws.clientId} disconnected. Player name: ${playerName}, Kicked: ${ws.kicked}`);
+      console.log(`[${room}] Presence before disconnect:`, Array.from(presence.entries()).map(([id, name]) => ({ clientId: id, name })));
+      
+      clients.delete(ws);
+      
+      // Don't delete from presence on disconnect - keep them but mark as disconnected
+      // Only delete if kicked
+      if (ws.kicked) {
+        console.log(`[${room}] Player ${playerName} was kicked, removing from presence`);
         presence.delete(ws.clientId);
-        broadcastPresence(room);
+      } else {
+        console.log(`[${room}] Player ${playerName} disconnected (not kicked), keeping in presence`);
       }
+      
+      // Always broadcast presence update to reflect connection status change
+      console.log(`[${room}] Presence after disconnect:`, Array.from(presence.entries()).map(([id, name]) => ({ clientId: id, name })));
+      broadcastPresence(room);
       // Clean up device connection tracking
       if (ws.deviceId) {
         const deviceConnections = getDeviceConnections(room);
@@ -697,13 +816,16 @@ app.prepare().then(() => {
           deviceConnections.delete(ws.deviceId);
         }
       }
+      // Don't delete presence when all clients disconnect - keep players in the list
+      // Only clean up other room data if truly empty
       if (clients.size === 0) {
         rooms.delete(room);
         lastSpinByRoom.delete(room);
         roomVotesByRoom.delete(room);
         teamStateByRoom.delete(room);
         adminByRoom.delete(room);
-        presenceByRoom.delete(room);
+        // Keep presenceByRoom - don't delete it so disconnected players stay in the list
+        // presenceByRoom.delete(room);
         settingsByRoom.delete(room);
         deviceConnectionsByRoom.delete(room);
       }

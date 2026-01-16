@@ -17,9 +17,12 @@ type WheelSectionProps = {
   teamState: TeamState | null;
   teamShuffle: boolean;
   statusMessage: string | null;
+  adminUnlocked: boolean;
   onSpin: () => void;
   onResetRotation: () => void;
   onCreateTeams: () => void;
+  onAwardTeamWin: (team: string[]) => void;
+  onAwardTeamLoss: (team: string[]) => void;
 };
 
 export default function WheelSection({
@@ -37,9 +40,12 @@ export default function WheelSection({
   teamState,
   teamShuffle,
   statusMessage,
+  adminUnlocked,
   onSpin,
   onResetRotation,
   onCreateTeams,
+  onAwardTeamWin,
+  onAwardTeamLoss,
 }: WheelSectionProps) {
   const shellStyle: CSSProperties = {
     ["--wheel-rotation" as string]: `${rotation}deg`,
@@ -134,7 +140,27 @@ export default function WheelSection({
           {teamState && (
             <div className="team-grid">
               <div className={`team-card ${teamShuffle ? "shuffle" : ""}`}>
-                <h3>Team A</h3>
+                <div className="team-card-header">
+                  <h3>Team A</h3>
+                  {adminUnlocked && (
+                    <div className="team-actions">
+                      <button
+                        className="ghost win-button"
+                        onClick={() => onAwardTeamWin(teamState.teamA)}
+                        title="Award win to Team A"
+                      >
+                        🏆
+                      </button>
+                      <button
+                        className="ghost loss-button"
+                        onClick={() => onAwardTeamLoss(teamState.teamA)}
+                        title="Award loss to Team A"
+                      >
+                        💀
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <ul>
                   {teamState.teamA.map((name) => (
                     <li key={`a-${name}`}>{name}</li>
@@ -142,7 +168,27 @@ export default function WheelSection({
                 </ul>
               </div>
               <div className={`team-card ${teamShuffle ? "shuffle" : ""}`}>
-                <h3>Team B</h3>
+                <div className="team-card-header">
+                  <h3>Team B</h3>
+                  {adminUnlocked && (
+                    <div className="team-actions">
+                      <button
+                        className="ghost win-button"
+                        onClick={() => onAwardTeamWin(teamState.teamB)}
+                        title="Award win to Team B"
+                      >
+                        🏆
+                      </button>
+                      <button
+                        className="ghost loss-button"
+                        onClick={() => onAwardTeamLoss(teamState.teamB)}
+                        title="Award loss to Team B"
+                      >
+                        💀
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <ul>
                   {teamState.teamB.map((name) => (
                     <li key={`b-${name}`}>{name}</li>
