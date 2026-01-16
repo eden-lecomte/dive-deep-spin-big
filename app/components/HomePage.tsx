@@ -5,12 +5,12 @@ import { useSearchParams } from "next/navigation";
 import HeaderBar from "./HeaderBar";
 import WheelSection from "./WheelSection";
 import ModesPanel from "./panels/ModesPanel";
-import HelpPanel from "./panels/HelpPanel";
 import VotingPanel from "./panels/VotingPanel";
 import EditPanel from "./panels/EditPanel";
 import AdminAccessPanel from "./panels/AdminAccessPanel";
 import AdminControlsPanel from "./panels/AdminControlsPanel";
 import PlayersPanel from "./panels/PlayersPanel";
+import PlayerManagementPanel from "./panels/PlayerManagementPanel";
 import {
   COLORS,
   DEFAULT_ITEMS,
@@ -77,10 +77,15 @@ export default function Home() {
     []
   );
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [disconnectMessage, setDisconnectMessage] = useState<string | null>(null);
   const [socketReady, setSocketReady] = useState(false);
+  const [multipleConnectionsPrompt, setMultipleConnectionsPrompt] = useState<{
+    message: string;
+  } | null>(null);
   const [teamState, setTeamState] = useState<TeamState | null>(null);
   const [teamShuffle, setTeamShuffle] = useState(false);
   const [adminClaimed, setAdminClaimed] = useState(false);
+  const [adminName, setAdminName] = useState<string | null>(null);
   const [adminPin, setAdminPin] = useState("");
   const [players, setPlayers] = useState<string[]>([]);
   const lastItemsSourceRef = useRef<"local" | "server" | null>(null);
@@ -105,6 +110,18 @@ export default function Home() {
   const lastSpinId = useRef<string | null>(null);
   const teamIntervalRef = useRef<number | null>(null);
   const teamTimeoutRef = useRef<number | null>(null);
+  const manualUnlockAttemptedRef = useRef(false);
+  const adminUnlockedRef = useRef(adminUnlocked);
+  const adminPinSessionRef = useRef(adminPinSession);
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    adminUnlockedRef.current = adminUnlocked;
+  }, [adminUnlocked]);
+
+  useEffect(() => {
+    adminPinSessionRef.current = adminPinSession;
+  }, [adminPinSession]);
 
   const effectiveRoomVotes = useMemo(() => {
     const name = userName.trim();
@@ -281,21 +298,48 @@ export default function Home() {
     itemsRef.current = items;
   }, [items]);
 
+  // Generate or retrieve device ID (persisted in localStorage)
+  const getDeviceId = useCallback(() => {
+    const STORAGE_KEY = "wheel:deviceId";
+    let deviceId = localStorage.getItem(STORAGE_KEY);
+    if (!deviceId) {
+      // Generate a unique device ID
+      deviceId = `device-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+      localStorage.setItem(STORAGE_KEY, deviceId);
+    }
+    return deviceId;
+  }, []);
+
   useEffect(() => {
     if (!roomParam) return;
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const deviceId = getDeviceId();
     const wsUrl = `${protocol}://${
       window.location.host
-    }/ws?room=${encodeURIComponent(room)}`;
+    }/ws?room=${encodeURIComponent(room)}&deviceId=${encodeURIComponent(deviceId)}`;
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
       setSocketReady(true);
+      setDisconnectMessage(null); // Clear disconnect message on successful connection
       if (pendingSpinRef.current) {
         pendingSpinRef.current = false;
       }
+      // If admin was previously unlocked, restore admin status on reconnect
+      // Only auto-restore if we haven't just attempted a manual unlock
+      // Use refs to get latest values without causing reconnection
+      if (adminUnlockedRef.current && adminPinSessionRef.current && !manualUnlockAttemptedRef.current) {
+        ws.send(
+          JSON.stringify({
+            type: "admin_unlock",
+            payload: { pin: adminPinSessionRef.current },
+          })
+        );
+      }
+      // Reset the manual unlock flag after connection is established
+      manualUnlockAttemptedRef.current = false;
     };
 
     ws.onmessage = (event) => {
@@ -321,6 +365,7 @@ export default function Home() {
             roomVotes,
             teamState,
             adminClaimed,
+            adminName,
             players,
             items,
             settings,
@@ -334,6 +379,9 @@ export default function Home() {
           }
           if (typeof adminClaimed === "boolean") {
             setAdminClaimed(adminClaimed);
+          }
+          if (adminName !== undefined) {
+            setAdminName(adminName);
           }
           if (Array.isArray(players)) {
             setPlayers(players);
@@ -370,9 +418,12 @@ export default function Home() {
           setTeamState(teamState ?? null);
         }
         if (message?.type === "admin_status") {
-          const { claimed } = message.payload || {};
+          const { claimed, adminName: statusAdminName } = message.payload || {};
           if (typeof claimed === "boolean") {
             setAdminClaimed(claimed);
+          }
+          if (statusAdminName !== undefined) {
+            setAdminName(statusAdminName);
           }
         }
         if (message?.type === "admin_result") {
@@ -380,10 +431,18 @@ export default function Home() {
           if (success) {
             setAdminUnlocked(true);
             setAdminClaimed(true);
-            const pinValue = adminPin.trim();
-            adminPinRef.current = pinValue;
-            setAdminPinSession(pinValue);
+            // Use pin from ref (most up-to-date) or session, fallback to state
+            const pinValue = adminPinRef.current || adminPinSession || adminPin.trim();
+            if (pinValue) {
+              adminPinRef.current = pinValue;
+              setAdminPinSession(pinValue);
+            }
             setShowAdminAccess(false);
+          } else {
+            // If claim failed because admin is already claimed, update state
+            if (resultMessage && resultMessage.includes("already claimed")) {
+              setAdminClaimed(true);
+            }
           }
           if (resultMessage) {
             setStatusMessage(resultMessage);
@@ -393,6 +452,21 @@ export default function Home() {
           const { players } = message.payload || {};
           if (Array.isArray(players)) {
             setPlayers(players);
+          }
+        }
+        if (message?.type === "presence_error") {
+          const { message: errorMessage } = message.payload || {};
+          if (errorMessage) {
+            setStatusMessage(errorMessage);
+            // Don't clear userName - keep the current name so user stays in the room
+            // The error message will prompt them to choose a different name
+          }
+        }
+        if (message?.type === "multiple_connections_prompt") {
+          const { message: promptMessage } = message.payload || {};
+          if (promptMessage) {
+            console.log("Multiple connections prompt received:", promptMessage);
+            setMultipleConnectionsPrompt({ message: promptMessage });
           }
         }
         if (message?.type === "items_update") {
@@ -424,36 +498,78 @@ export default function Home() {
             }
           }
         }
+        if (message?.type === "player_rename_result") {
+          const { success, message: resultMessage } = message.payload || {};
+          if (resultMessage) {
+            setStatusMessage(resultMessage);
+          }
+        }
+        if (message?.type === "player_kick_result") {
+          const { success, message: resultMessage } = message.payload || {};
+          if (resultMessage) {
+            setStatusMessage(resultMessage);
+          }
+        }
       } catch {
         return;
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setSocketReady(false);
+      
+      // Handle different disconnect reasons
+      if (event.code === 4008) {
+        // Kicked by admin
+        setDisconnectMessage("You have been kicked from the room by an admin.");
+        // Remove room parameter to go back to join screen
+        const url = new URL(window.location.href);
+        url.searchParams.delete("room");
+        window.history.replaceState({}, "", url.toString());
+        // Force a page reload to show the join screen after a short delay
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      } else if (event.code === 4009) {
+        // Multiple connections from same device
+        setDisconnectMessage("Multiple connections detected. You can't log in as multiple users from the same device.");
+        // Remove room parameter to go back to join screen
+        const url = new URL(window.location.href);
+        url.searchParams.delete("room");
+        window.history.replaceState({}, "", url.toString());
+        // Force a page reload to show the join screen after a short delay
+        setTimeout(() => {
+          window.location.reload();
+        }, 3000);
+      } else if (event.code === 1006 || event.code === 1001) {
+        // Abnormal closure or going away (server disconnect, network issue)
+        setDisconnectMessage("Connection lost. The server may have disconnected or there's a network issue.");
+      } else if (event.code !== 1000) {
+        // Other non-normal closures
+        const reason = event.reason || "Unknown reason";
+        setDisconnectMessage(`Connection closed: ${reason}`);
+      } else {
+        // Normal closure (1000) - clear any previous disconnect message
+        setDisconnectMessage(null);
+      }
     };
 
     ws.onerror = () => {
       setSocketReady(false);
+      setDisconnectMessage("WebSocket error occurred. Please check your connection.");
     };
 
     return () => {
       ws.close();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    adminPin,
-    requestSpin,
     room,
     roomParam,
-    setAdminUnlocked,
-    setItems,
-    setMysteryEnabled,
-    setNoRepeatMode,
-    setRoomVotes,
-    setTeamState,
-    setAdminPinSession,
-    setVotingEnabled,
-    spinToItem,
+    getDeviceId,
+    // Note: Setters and other functions are intentionally excluded to prevent
+    // unnecessary WebSocket reconnections. The event handlers capture the
+    // latest values via closures, and setState functions are stable.
   ]);
 
   useEffect(() => {
@@ -620,6 +736,7 @@ export default function Home() {
       setStatusMessage("Not connected to server yet.");
       return;
     }
+    manualUnlockAttemptedRef.current = true;
     adminPinRef.current = pinValue;
     setAdminPin(pinValue);
     setAdminPinSession(pinValue);
@@ -641,6 +758,7 @@ export default function Home() {
       setStatusMessage("Not connected to server yet.");
       return;
     }
+    manualUnlockAttemptedRef.current = true;
     adminPinRef.current = pin;
     setAdminPin(pin);
     setAdminPinSession(pin);
@@ -687,6 +805,49 @@ export default function Home() {
     }
     setStatusMessage("Spin result cleared.");
   }, []);
+
+  const renamePlayer = useCallback(
+    (oldName: string, newName: string) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        setStatusMessage("Not connected to server yet.");
+        return;
+      }
+      if (!adminUnlocked) {
+        setStatusMessage("You must be unlocked as admin to perform this action.");
+        return;
+      }
+      wsRef.current.send(
+        JSON.stringify({
+          type: "player_rename",
+          payload: { oldName, newName },
+        })
+      );
+    },
+    [adminUnlocked]
+  );
+
+  const kickPlayer = useCallback(
+    (playerName: string) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        setStatusMessage("Not connected to server yet.");
+        return;
+      }
+      if (!adminUnlocked) {
+        setStatusMessage("You must be unlocked as admin to perform this action.");
+        return;
+      }
+      if (!confirm(`Are you sure you want to kick "${playerName}"?`)) {
+        return;
+      }
+      wsRef.current.send(
+        JSON.stringify({
+          type: "player_kick",
+          payload: { playerName },
+        })
+      );
+    },
+    [adminUnlocked]
+  );
 
   const resetAdmin = useCallback(() => {
     setAdminUnlocked(false);
@@ -807,42 +968,145 @@ export default function Home() {
   }
 
   const [roomInput, setRoomInput] = useState("");
+  const [playerNameInput, setPlayerNameInput] = useState(userName || "");
+
+  // Update playerNameInput when userName changes (e.g., when returning to landing screen)
+  useEffect(() => {
+    setPlayerNameInput(userName || "");
+  }, [userName]);
+
+  function handleSetPlayerName() {
+    const name = playerNameInput.trim();
+    if (!name) return;
+    setUserName(name);
+  }
 
   function createRoomCode() {
+    const name = playerNameInput.trim();
+    if (!name) return;
+    // Set name first
+    setUserName(name);
+    // Then create room
     const code = Math.random().toString(36).slice(2, 8).toUpperCase();
     applyQueryParams({ room: code });
   }
 
   function joinRoom() {
+    const name = playerNameInput.trim();
+    if (!name) return;
     const code = roomInput.trim();
     if (!code) return;
+    // Set name first
+    setUserName(name);
+    // Then join room
     applyQueryParams({ room: code });
   }
 
+  function leaveRoom() {
+    // Close WebSocket connection
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+    // Remove room parameter to go back to landing screen
+    const url = new URL(window.location.href);
+    url.searchParams.delete("room");
+    window.history.replaceState({}, "", url.toString());
+    // Reload to show landing screen
+    window.location.reload();
+  }
+
   if (!roomParam) {
+    // Show room entry UI with name input
     return (
-      <div className="page room-gate">
-        <div className="room-card">
-          <h1>Join a room</h1>
-          <p className="subtle">
-            Enter a room code to join, or create a new one.
-          </p>
-          <div className="room-actions">
-            <input
-              type="text"
-              value={roomInput}
-              onChange={(event) => setRoomInput(event.target.value)}
-              placeholder="Room code"
-            />
-            <button className="primary" onClick={joinRoom}>
-              Join room
+      <>
+        {multipleConnectionsPrompt && (
+          <div className="modal-overlay">
+            <div className="modal-content">
+              <h3>Multiple Connections Detected</h3>
+              <p>{multipleConnectionsPrompt.message}</p>
+              <div className="modal-actions">
+                <button
+                  className="primary"
+                  onClick={() => {
+                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                      wsRef.current.send(
+                        JSON.stringify({
+                          type: "multiple_connections_confirm",
+                          payload: { proceed: true },
+                        })
+                      );
+                    }
+                    setMultipleConnectionsPrompt(null);
+                  }}
+                >
+                  Continue
+                </button>
+                <button
+                  className="ghost"
+                  onClick={() => {
+                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                      wsRef.current.send(
+                        JSON.stringify({
+                          type: "multiple_connections_confirm",
+                          payload: { proceed: false },
+                        })
+                      );
+                      wsRef.current.close();
+                    }
+                    setMultipleConnectionsPrompt(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="page room-gate">
+          <div className="room-card">
+            <h1>Join a room</h1>
+            <p className="subtle">
+              Enter your name and a room code to join, or create a new one.
+            </p>
+            <div className="room-actions">
+              <label className="field">
+                Your name
+                <input
+                  type="text"
+                  value={playerNameInput}
+                  onChange={(event) => setPlayerNameInput(event.target.value)}
+                  placeholder="Player name"
+                />
+              </label>
+              <input
+                type="text"
+                value={roomInput}
+                onChange={(event) => setRoomInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    joinRoom();
+                  }
+                }}
+                placeholder="Room code"
+              />
+              <button
+                className="primary"
+                onClick={joinRoom}
+                disabled={!roomInput.trim() || !playerNameInput.trim()}
+              >
+                Join room
+              </button>
+            </div>
+            <button
+              className="ghost"
+              onClick={createRoomCode}
+              disabled={!playerNameInput.trim()}
+            >
+              Create new room
             </button>
           </div>
-          <button className="ghost" onClick={createRoomCode}>
-            Create new room
-          </button>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -884,97 +1148,159 @@ export default function Home() {
         adminPopoverOpen={Boolean(adminPopoverContent)}
         adminPopoverContent={adminPopoverContent}
         onAdminClick={() => setShowAdminAccess((prev) => !prev)}
+        onLeaveRoom={leaveRoom}
       />
 
-      <main className={`layout ${viewParam ? "view-mode" : ""}`}>
-        <WheelSection
-          viewMode={viewParam}
-          showSpin={adminUnlocked}
-          rotation={rotation}
-          spinDuration={SPIN_DURATION}
-          isSpinning={isSpinning}
-          itemsCount={items.length}
-          segments={segments}
-          gradient={gradient}
-          hiddenLabels={hiddenLabels}
-          pendingResultId={pendingResultId}
-          landedItem={landedItem}
-          teamState={teamState}
-          teamShuffle={teamShuffle}
-          statusMessage={statusMessage}
-          onSpin={() => requestSpin("manual")}
-          onResetRotation={() => setRotation(0)}
-          onCreateTeams={createTeams}
-        />
+      {disconnectMessage && (
+        <div className="disconnect-banner">
+          <div className="disconnect-banner-content">
+            <span className="disconnect-icon">⚠️</span>
+            <span>{disconnectMessage}</span>
+            <button
+              className="ghost"
+              onClick={() => setDisconnectMessage(null)}
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
-        {!viewParam && (
-          <section className="panel">
-            {adminUnlocked && (
-              <HelpPanel onApplyQueryParams={applyQueryParams} />
-            )}
+      {multipleConnectionsPrompt && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h3>Multiple Connections Detected</h3>
+            <p>{multipleConnectionsPrompt.message}</p>
+            <div className="modal-actions">
+              <button
+                className="primary"
+                onClick={() => {
+                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(
+                      JSON.stringify({
+                        type: "multiple_connections_confirm",
+                        payload: { proceed: true },
+                      })
+                    );
+                    // socketReady will be set when sync message is received
+                  }
+                  setMultipleConnectionsPrompt(null);
+                }}
+              >
+                Continue
+              </button>
+              <button
+                className="ghost"
+                onClick={() => {
+                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(
+                      JSON.stringify({
+                        type: "multiple_connections_confirm",
+                        payload: { proceed: false },
+                      })
+                    );
+                    wsRef.current.close();
+                  }
+                  setMultipleConnectionsPrompt(null);
+                  // Go back to landing screen
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete("room");
+                  window.history.replaceState({}, "", url.toString());
+                  window.location.reload();
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-            <PlayersPanel players={players} />
+      <main>
+        <div className={`layout ${viewParam ? "view-mode" : ""}`}>
+          <WheelSection
+            viewMode={viewParam}
+            showSpin={adminUnlocked}
+            rotation={rotation}
+            spinDuration={SPIN_DURATION}
+            isSpinning={isSpinning}
+            itemsCount={items.length}
+            segments={segments}
+            gradient={gradient}
+            hiddenLabels={hiddenLabels}
+            pendingResultId={pendingResultId}
+            landedItem={landedItem}
+            teamState={teamState}
+            teamShuffle={teamShuffle}
+            statusMessage={statusMessage}
+            onSpin={() => requestSpin("manual")}
+            onResetRotation={() => setRotation(0)}
+            onCreateTeams={createTeams}
+          />
 
-            {votingEnabled && (
-              <VotingPanel
-                items={items}
-                hiddenLabels={hiddenLabels}
-                votesByItem={votesByItem}
-                voteSummary={voteSummary}
-                userName={userName}
-                onUserNameChange={setUserName}
-                onSetVote={setVote}
-              />
-            )}
+          {!viewParam && (
+            <section className="panel">
+              <PlayersPanel players={players} adminName={adminName} />
 
-            {adminUnlocked && (
-              <EditPanel
-                editLocked={editLocked}
-                canEdit={canEdit}
-                items={items}
-                draftItem={draftItem}
-                onUpdateItem={updateItem}
-                onRemoveItem={removeItem}
-                onDraftChange={setDraftItem}
-                onDraftSubmit={handleDraftSubmit}
-              />
-            )}
-
-            {!adminUnlocked && !adminClaimed && (
-              <AdminAccessPanel
-                userName={userName}
-                adminClaimed={adminClaimed}
-                adminPin={adminPin}
-                socketReady={socketReady}
-                onUserNameChange={setUserName}
-                onAdminPinChange={setAdminPin}
-                onClaimAdmin={claimAdmin}
-                onUnlockAdmin={unlockAdmin}
-              />
-            )}
-
-            {adminUnlocked && (
-              <>
-                <ModesPanel
-                  votingEnabled={votingEnabled}
-                  mysteryEnabled={mysteryEnabled}
-                  noRepeatMode={noRepeatMode}
-                  controlsEnabled={adminUnlocked}
-                  onVotingToggle={setVotingEnabled}
-                  onMysteryToggle={setMysteryEnabled}
-                  onNoRepeatModeChange={setNoRepeatMode}
-                  onResetSessionHistory={() => setUsedItemIds([])}
+              {votingEnabled && (
+                <VotingPanel
+                  items={items}
+                  hiddenLabels={hiddenLabels}
+                  votesByItem={votesByItem}
+                  voteSummary={voteSummary}
+                  userName={userName}
+                  roomVotes={effectiveRoomVotes}
+                  onUserNameChange={setUserName}
+                  onSetVote={setVote}
                 />
-                <AdminControlsPanel
-                  onResetVotes={resetVotes}
-                  onResetHistory={resetHistory}
-                  onResetItems={resetItems}
-                  onResetResult={resetResult}
-                  onResetAdmin={resetAdmin}
-                />
-              </>
-            )}
-          </section>
+              )}
+
+              {adminUnlocked && (
+                <>
+                  <ModesPanel
+                    votingEnabled={votingEnabled}
+                    mysteryEnabled={mysteryEnabled}
+                    noRepeatMode={noRepeatMode}
+                    controlsEnabled={adminUnlocked}
+                    onVotingToggle={setVotingEnabled}
+                    onMysteryToggle={setMysteryEnabled}
+                    onNoRepeatModeChange={setNoRepeatMode}
+                    onResetSessionHistory={() => setUsedItemIds([])}
+                  />
+                  <PlayerManagementPanel
+                    players={players}
+                    socketReady={socketReady}
+                    adminName={adminName}
+                    onRenamePlayer={renamePlayer}
+                    onKickPlayer={kickPlayer}
+                  />
+                  <AdminControlsPanel
+                    onResetVotes={resetVotes}
+                    onResetHistory={resetHistory}
+                    onResetItems={resetItems}
+                    onResetResult={resetResult}
+                    onResetAdmin={resetAdmin}
+                  />
+                </>
+              )}
+            </section>
+          )}
+        </div>
+
+        {!viewParam && adminUnlocked && (
+          <div className="edit-panel-fullwidth">
+            <EditPanel
+              editLocked={editLocked}
+              canEdit={canEdit}
+              items={items}
+              draftItem={draftItem}
+              onUpdateItem={updateItem}
+              onRemoveItem={removeItem}
+              onDraftChange={setDraftItem}
+              onDraftSubmit={handleDraftSubmit}
+            />
+          </div>
         )}
       </main>
     </div>

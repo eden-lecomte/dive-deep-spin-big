@@ -7,6 +7,7 @@ type VotingPanelProps = {
   votesByItem: Record<string, VoteLevel>;
   voteSummary: VoteSummaryEntry[];
   userName: string;
+  roomVotes: Record<string, Record<string, VoteLevel>>;
   onUserNameChange: (value: string) => void;
   onSetVote: (itemId: string, level: VoteLevel) => void;
 };
@@ -17,12 +18,32 @@ export default function VotingPanel({
   votesByItem,
   voteSummary,
   userName,
+  roomVotes,
   onUserNameChange,
   onSetVote,
 }: VotingPanelProps) {
+  // Calculate vote counts per item
+  const itemVoteCounts = items.map((item) => {
+    const votes: { gold: number; silver: number; bronze: number } = {
+      gold: 0,
+      silver: 0,
+      bronze: 0,
+    };
+    Object.values(roomVotes).forEach((playerVotes) => {
+      const level = playerVotes[item.id];
+      if (level) {
+        votes[level]++;
+      }
+    });
+    const totalWeight = votes.gold * VOTE_WEIGHTS.gold + 
+                       votes.silver * VOTE_WEIGHTS.silver + 
+                       votes.bronze * VOTE_WEIGHTS.bronze;
+    return { item, votes, totalWeight };
+  });
+
   return (
     <div className="panel-block">
-      <h3>Voting</h3>
+      <h3>Games & Votes</h3>
       <label className="field">
         Your name
         <input
@@ -32,10 +53,35 @@ export default function VotingPanel({
           placeholder="Player name"
         />
       </label>
-      <div className="vote-grid">
-        {items.map((item) => (
-          <div key={item.id} className="vote-card">
-            <span>{hiddenLabels ? "Mystery item" : item.label}</span>
+      <div className="games-votes-list">
+        {itemVoteCounts.map(({ item, votes, totalWeight }) => (
+          <div key={item.id} className="game-vote-item">
+            <div className="game-vote-header">
+              <span className="game-name">
+                {hiddenLabels ? "Mystery item" : item.label}
+              </span>
+              <span className="vote-total">Weight: {totalWeight.toFixed(1)}</span>
+            </div>
+            <div className="vote-counts">
+              {votes.gold > 0 && (
+                <span className="vote-badge gold">
+                  🥇 {votes.gold}
+                </span>
+              )}
+              {votes.silver > 0 && (
+                <span className="vote-badge silver">
+                  🥈 {votes.silver}
+                </span>
+              )}
+              {votes.bronze > 0 && (
+                <span className="vote-badge bronze">
+                  🥉 {votes.bronze}
+                </span>
+              )}
+              {votes.gold === 0 && votes.silver === 0 && votes.bronze === 0 && (
+                <span className="vote-badge none">No votes</span>
+              )}
+            </div>
             <div className="vote-actions">
               {(["gold", "silver", "bronze"] as VoteLevel[]).map((level) => (
                 <button
@@ -58,8 +104,7 @@ export default function VotingPanel({
           <ul>
             {voteSummary.map((entry) => (
               <li key={entry.item.id}>
-                {userName || "Anonymous"} → {entry.item.label}: {entry.level} (
-                {VOTE_WEIGHTS[entry.level]})
+                {entry.item.label}: {entry.level} ({VOTE_WEIGHTS[entry.level]})
               </li>
             ))}
           </ul>

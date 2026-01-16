@@ -7,6 +7,7 @@ type HeaderBarProps = {
   adminPopoverOpen: boolean;
   adminPopoverContent: React.ReactNode | null;
   onAdminClick: () => void;
+  onLeaveRoom: () => void;
 };
 
 export default function HeaderBar({
@@ -18,6 +19,7 @@ export default function HeaderBar({
   adminPopoverOpen,
   adminPopoverContent,
   onAdminClick,
+  onLeaveRoom,
 }: HeaderBarProps) {
   return (
     <header className="header">
@@ -30,6 +32,9 @@ export default function HeaderBar({
       </div>
       {!viewMode && (
         <div className="status-group">
+          <button className="ghost" onClick={onLeaveRoom}>
+            Leave room
+          </button>
           <div className="admin-wrapper">
             <button className="ghost admin-indicator" onClick={onAdminClick}>
               <span className={`status-dot ${adminActive ? "ok" : "warn"}`} />

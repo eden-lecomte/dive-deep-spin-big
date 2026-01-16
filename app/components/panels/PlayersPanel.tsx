@@ -1,5 +1,6 @@
 type PlayersPanelProps = {
   players: string[];
+  adminName: string | null;
 };
 
 function hashString(value: string) {
@@ -20,15 +21,28 @@ function playerStyle(name: string) {
   };
 }
 
-export default function PlayersPanel({ players }: PlayersPanelProps) {
+export default function PlayersPanel({ players, adminName }: PlayersPanelProps) {
+  // Sort players to put admin first
+  const sortedPlayers = [...players].sort((a, b) => {
+    if (!adminName) return 0;
+    const aIsAdmin = a.trim().toLowerCase() === adminName.trim().toLowerCase();
+    const bIsAdmin = b.trim().toLowerCase() === adminName.trim().toLowerCase();
+    if (aIsAdmin && !bIsAdmin) return -1;
+    if (!aIsAdmin && bIsAdmin) return 1;
+    return 0;
+  });
+
   return (
     <div className="panel-block">
       <h3>Players</h3>
-      {players.length ? (
+      {sortedPlayers.length ? (
         <ul className="players-list">
-          {players.map((name) => (
+          {sortedPlayers.map((name) => (
             <li key={name} className="player-pill" style={playerStyle(name)}>
               {name}
+              {adminName && name.trim().toLowerCase() === adminName.trim().toLowerCase() && (
+                <span className="admin-crown">👑</span>
+              )}
             </li>
           ))}
         </ul>
