@@ -2,9 +2,12 @@ version: "3.8"
 
 services:
   spinner:
-    build: .
+    container_name: dive-deep-spin-big
+    build: https://github.com/eden-lecomte/dive-deep-spin-big.git#main
+    pull_policy: always
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      - PORT=3000
     restart: unless-stopped
