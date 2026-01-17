@@ -796,7 +796,7 @@ export default function Home() {
     [adminPin, adminPinSession, canEdit, socketReady]
   );
 
-  useEffect(() => {
+  const broadcastSettings = useCallback(() => {
     if (!socketReady || !canEdit) return;
     if (suppressSettingsBroadcastRef.current) {
       suppressSettingsBroadcastRef.current = false;
@@ -818,6 +818,19 @@ export default function Home() {
         })
       );
     }
+  }, [
+    adminPin,
+    adminPinSession,
+    canEdit,
+    mysteryEnabled,
+    noRepeatMode,
+    presentationMode,
+    socketReady,
+    votingEnabled,
+  ]);
+
+  useEffect(() => {
+    broadcastSettings();
   }, [
     adminPin,
     adminPinSession,
@@ -969,6 +982,22 @@ export default function Home() {
       })
     );
   }, [adminPin, setAdminPinSession]);
+
+  const handleVotingToggle = useCallback(() => {
+    // Update both states atomically - React will batch these updates
+    // Ensure we're not suppressing broadcasts for this local change
+    suppressSettingsBroadcastRef.current = false;
+    setPresentationMode(false);
+    setVotingEnabled(true);
+  }, [setPresentationMode, setVotingEnabled]);
+
+  const handlePresentationToggle = useCallback(() => {
+    // Update both states atomically - React will batch these updates
+    // Ensure we're not suppressing broadcasts for this local change
+    suppressSettingsBroadcastRef.current = false;
+    setVotingEnabled(false);
+    setPresentationMode(true);
+  }, [setVotingEnabled, setPresentationMode]);
 
   const resetVotes = useCallback(() => {
     setVotesByItem({});
@@ -1496,8 +1525,8 @@ export default function Home() {
         adminName={adminName}
         onAdminClick={() => setShowAdminAccess((prev) => !prev)}
         onLeaveRoom={leaveRoom}
-        onVotingToggle={() => setVotingEnabled(!votingEnabled)}
-        onPresentationToggle={() => setPresentationMode(!presentationMode)}
+        onVotingToggle={handleVotingToggle}
+        onPresentationToggle={handlePresentationToggle}
       />
 
       {disconnectMessage && (

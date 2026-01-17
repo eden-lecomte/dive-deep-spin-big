@@ -136,12 +136,8 @@ export default function HeaderBar({
               <button
                 className={`mode-toggle-option ${votingEnabled && !presentationMode ? "active" : ""}`}
                 onClick={() => {
-                  if (presentationMode) {
-                    onPresentationToggle?.();
-                  }
-                  if (!votingEnabled) {
-                    onVotingToggle?.();
-                  }
+                  // Always call the handler - it will set the correct state
+                  onVotingToggle?.();
                 }}
               >
                 Vote
@@ -153,12 +149,8 @@ export default function HeaderBar({
               <button
                 className={`mode-toggle-option ${presentationMode ? "active" : ""}`}
                 onClick={() => {
-                  if (votingEnabled) {
-                    onVotingToggle?.();
-                  }
-                  if (!presentationMode) {
-                    onPresentationToggle?.();
-                  }
+                  // Always call the handler - it will set the correct state
+                  onPresentationToggle?.();
                 }}
               >
                 Play
