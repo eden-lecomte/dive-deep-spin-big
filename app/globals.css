@@ -361,19 +361,20 @@ select {
 
 .victory-names {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 16px;
   align-items: center;
+  justify-content: center;
 }
 
 .victory-name {
   font-size: 1.5rem;
   font-weight: 600;
-  color: var(--accent-strong);
   padding: 12px 24px;
-  background: rgba(111, 156, 255, 0.15);
   border-radius: 12px;
-  border: 1px solid rgba(111, 156, 255, 0.3);
+  border: 1px solid;
+  /* Colors are applied via inline styles from playerStyle() */
 }
 
 .header h1 {
@@ -696,7 +697,7 @@ select {
   height: 0;
   border-left: 16px solid transparent;
   border-right: 16px solid transparent;
-  border-bottom: 24px solid var(--accent);
+  border-top: 24px solid var(--accent);
   filter: 
     drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5))
     drop-shadow(0 0 12px rgba(111, 156, 255, 0.6));
@@ -715,7 +716,7 @@ select {
     filter: 
       drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5))
       drop-shadow(0 0 20px rgba(111, 156, 255, 0.9));
-    transform: translateY(-2px);
+    transform: translateY(2px);
   }
 }
 

@@ -19,6 +19,7 @@ const presenceByRoom = new Map();
 const itemsByRoom = new Map();
 const settingsByRoom = new Map();
 const deviceConnectionsByRoom = new Map(); // Track device IDs per room
+const roomLastActivity = new Map(); // Track last activity timestamp for each room
 let clientCounter = 0;
 
 function getRoom(req) {
@@ -42,6 +43,8 @@ function getDeviceId(req) {
 function getDeviceConnections(room) {
   if (!deviceConnectionsByRoom.has(room)) {
     deviceConnectionsByRoom.set(room, new Map());
+    // Trigger cleanup when a new room is created
+    cleanupStaleRooms();
   }
   return deviceConnectionsByRoom.get(room);
 }
@@ -81,8 +84,86 @@ function broadcast(room, message) {
 function getPresence(room) {
   if (!presenceByRoom.has(room)) {
     presenceByRoom.set(room, new Map());
+    // Trigger cleanup when a new room is created
+    cleanupStaleRooms();
   }
   return presenceByRoom.get(room);
+}
+
+// Update room activity timestamp
+function updateRoomActivity(room) {
+  roomLastActivity.set(room, Date.now());
+}
+
+// Clean up stale rooms and clients (older than 24 hours with no activity)
+function cleanupStaleRooms() {
+  const now = Date.now();
+  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+  const roomsToCleanup = [];
+  
+  // Find rooms that haven't been active in 24+ hours
+  for (const [room, lastActivity] of roomLastActivity.entries()) {
+    if (now - lastActivity > TWENTY_FOUR_HOURS) {
+      // Check if room has any active connections
+      const roomClients = rooms.get(room);
+      const hasActiveConnections = roomClients && Array.from(roomClients).some(
+        (client) => client.readyState === WebSocket.OPEN || client.readyState === WebSocket.CONNECTING
+      );
+      
+      // Only cleanup if no active connections
+      if (!hasActiveConnections) {
+        roomsToCleanup.push(room);
+      }
+    }
+  }
+  
+  // Also check rooms that have data but no activity tracking (legacy rooms)
+  // These will get activity tracking on their next interaction
+  const allRoomsWithData = new Set([
+    ...roomVotesByRoom.keys(),
+    ...itemsByRoom.keys(),
+    ...settingsByRoom.keys(),
+    ...adminByRoom.keys(),
+    ...teamStateByRoom.keys(),
+  ]);
+  
+  for (const room of allRoomsWithData) {
+    // Skip if already in cleanup list or has activity tracking
+    if (roomsToCleanup.includes(room) || roomLastActivity.has(room)) {
+      continue;
+    }
+    
+    // Check if room has any active connections
+    const roomClients = rooms.get(room);
+    const hasActiveConnections = roomClients && Array.from(roomClients).some(
+      (client) => client.readyState === WebSocket.OPEN || client.readyState === WebSocket.CONNECTING
+    );
+    
+    // If room has data but no connections and no activity tracking,
+    // it's likely stale - but be conservative and only clean if it's been a while
+    // For now, we'll only clean rooms with activity tracking to be safe
+  }
+  
+  // Clean up stale rooms
+  for (const room of roomsToCleanup) {
+    console.log(`[CLEANUP] Removing stale room: ${room} (inactive for 24+ hours)`);
+    
+    // Remove all room data
+    rooms.delete(room);
+    lastSpinByRoom.delete(room);
+    roomVotesByRoom.delete(room);
+    teamStateByRoom.delete(room);
+    adminByRoom.delete(room);
+    presenceByRoom.delete(room);
+    itemsByRoom.delete(room);
+    settingsByRoom.delete(room);
+    deviceConnectionsByRoom.delete(room);
+    roomLastActivity.delete(room);
+  }
+  
+  if (roomsToCleanup.length > 0) {
+    console.log(`[CLEANUP] Cleaned up ${roomsToCleanup.length} stale room(s)`);
+  }
 }
 
 function broadcastPresence(room) {
@@ -118,8 +199,16 @@ function broadcastPresence(room) {
   });
 }
 
+// Set up periodic cleanup of stale rooms (run every hour)
+setInterval(() => {
+  cleanupStaleRooms();
+}, 60 * 60 * 1000); // Run every hour
+
+// Run cleanup immediately on startup
+cleanupStaleRooms();
+
 app.prepare().then(() => {
-  const server = http.createServer((req, res) => handle(req, res));
+    const server = http.createServer((req, res) => handle(req, res));
   const upgradeHandler =
     typeof app.getUpgradeHandler === "function"
       ? app.getUpgradeHandler()
@@ -148,6 +237,9 @@ app.prepare().then(() => {
     ws.room = room;
     ws.clientId = `client-${clientCounter++}`;
     ws.deviceId = deviceId;
+    
+    // Update room activity on connection
+    updateRoomActivity(room);
 
     // Check for multiple connections BEFORE fully establishing the connection
     let hasExistingConnection = false;
@@ -322,12 +414,14 @@ app.prepare().then(() => {
       }
 
       if (message?.type === "spin") {
+        updateRoomActivity(room);
         lastSpinByRoom.set(room, message);
         broadcast(room, message);
         return;
       }
 
       if (message?.type === "victory") {
+        updateRoomActivity(room);
         const { winners } = message.payload || {};
         console.log(`[${room}] ===== VICTORY MESSAGE RECEIVED =====`);
         console.log(`[${room}] From client: ${ws.clientId}, isAdmin: ${ws.isAdmin}`);
@@ -446,6 +540,7 @@ app.prepare().then(() => {
       }
 
       if (message?.type === "admin_unlock") {
+        updateRoomActivity(room);
         const { pin } = message.payload || {};
         const admin = adminByRoom.get(room);
         if (!admin) {
@@ -477,6 +572,7 @@ app.prepare().then(() => {
       }
 
       if (message?.type === "admin_claim") {
+        updateRoomActivity(room);
         const { name, pin } = message.payload || {};
         if (!name || !/^\d{4}$/.test(pin || "")) {
           ws.send(
@@ -726,6 +822,7 @@ app.prepare().then(() => {
       }
 
       if (message?.type === "items_update") {
+        updateRoomActivity(room);
         const { items, sourceClientId } = message.payload || {};
         if (!Array.isArray(items)) return;
         itemsByRoom.set(room, items);
@@ -737,6 +834,7 @@ app.prepare().then(() => {
       }
 
       if (message?.type === "settings_update") {
+        updateRoomActivity(room);
         const { settings } = message.payload || {};
         if (!settings) return;
         settingsByRoom.set(room, settings);
@@ -783,6 +881,7 @@ app.prepare().then(() => {
       }
 
       if (message?.type === "teams") {
+        updateRoomActivity(room);
         const { teamState } = message.payload || {};
         if (!teamState) return;
         teamStateByRoom.set(room, teamState);
@@ -818,6 +917,7 @@ app.prepare().then(() => {
       }
 
       if (message?.type === "ping") {
+        updateRoomActivity(room);
         ws.send(JSON.stringify({ type: "pong" }));
       }
     });
@@ -853,16 +953,10 @@ app.prepare().then(() => {
       }
       // Don't delete presence when all clients disconnect - keep players in the list
       // Only clean up other room data if truly empty
+      // Note: Stale room cleanup will handle rooms that are inactive for 24+ hours
       if (clients.size === 0) {
-        rooms.delete(room);
-        lastSpinByRoom.delete(room);
-        roomVotesByRoom.delete(room);
-        teamStateByRoom.delete(room);
-        adminByRoom.delete(room);
-        // Keep presenceByRoom - don't delete it so disconnected players stay in the list
-        // presenceByRoom.delete(room);
-        settingsByRoom.delete(room);
-        deviceConnectionsByRoom.delete(room);
+        // Don't immediately delete room data - let cleanup handle stale rooms
+        // This allows rooms to persist for a while in case users reconnect
       }
     });
   });
