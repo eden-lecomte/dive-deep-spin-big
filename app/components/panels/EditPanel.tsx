@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocalStorageState } from "../../hooks/useStoredState";
 import type { DraftItem, WheelItem } from "../../lib/types";
 
@@ -12,6 +12,9 @@ type EditPanelProps = {
   onDraftChange: (draft: DraftItem) => void;
   onDraftSubmit: () => void;
   onSaveAsDefault?: () => Promise<boolean> | boolean;
+  onExportItems?: () => Promise<boolean> | boolean;
+  onImportItems?: (items: WheelItem[]) => Promise<boolean> | boolean;
+  onImportError?: (message: string) => void;
 };
 
 export default function EditPanel({
@@ -24,12 +27,59 @@ export default function EditPanel({
   onDraftChange,
   onDraftSubmit,
   onSaveAsDefault,
+  onExportItems,
+  onImportItems,
+  onImportError,
 }: EditPanelProps) {
   const [pendingSave, setPendingSave] = useState(false);
+  const [exportStatus, setExportStatus] = useState<"idle" | "success" | "error">(
+    "idle"
+  );
+  const [importStatus, setImportStatus] = useState<"idle" | "success" | "error">(
+    "idle"
+  );
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isCollapsed, setIsCollapsed] = useLocalStorageState<boolean>(
     "wheel:gamesListCollapsed",
     false
   );
+
+  function handleImportClick() {
+    fileInputRef.current?.click();
+  }
+
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !onImportItems) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const payload = JSON.parse(String(reader.result || ""));
+        if (!Array.isArray(payload)) {
+          onImportError?.("Invalid file: expected a JSON array.");
+          setImportStatus("error");
+          setTimeout(() => setImportStatus("idle"), 2000);
+          return;
+        }
+        const result = onImportItems(payload as WheelItem[]);
+        Promise.resolve(result)
+          .then((success) => {
+            setImportStatus(success ? "success" : "error");
+            setTimeout(() => setImportStatus("idle"), 2000);
+          })
+          .catch(() => {
+            setImportStatus("error");
+            setTimeout(() => setImportStatus("idle"), 2000);
+          });
+      } catch {
+        onImportError?.("Invalid JSON file.");
+        setImportStatus("error");
+        setTimeout(() => setImportStatus("idle"), 2000);
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = "";
+  }
 
   useEffect(() => {
     if (pendingSave) {
@@ -60,7 +110,71 @@ export default function EditPanel({
       {!isCollapsed && canEdit ? (
         <div className="edit-area">
           {onSaveAsDefault && (
-            <div style={{ marginBottom: "16px", display: "flex", justifyContent: "flex-end" }}>
+            <div
+              style={{
+                marginBottom: "16px",
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "8px",
+                flexWrap: "wrap",
+              }}
+            >
+              {onExportItems && (
+                <button
+                  className={`ghost ${
+                    exportStatus === "success"
+                      ? "pending-confirm"
+                      : exportStatus === "error"
+                      ? "danger"
+                      : ""
+                  }`}
+                  onClick={() => {
+                    const result = onExportItems();
+                    Promise.resolve(result)
+                      .then((success) => {
+                        setExportStatus(success ? "success" : "error");
+                        setTimeout(() => setExportStatus("idle"), 2000);
+                      })
+                      .catch(() => {
+                        setExportStatus("error");
+                        setTimeout(() => setExportStatus("idle"), 2000);
+                      });
+                  }}
+                >
+                  {exportStatus === "success"
+                    ? "Exported"
+                    : exportStatus === "error"
+                    ? "Export failed"
+                    : "Export items"}
+                </button>
+              )}
+              {onImportItems && (
+                <>
+                  <button
+                    className={`ghost ${
+                      importStatus === "success"
+                        ? "pending-confirm"
+                        : importStatus === "error"
+                        ? "danger"
+                        : ""
+                    }`}
+                    onClick={handleImportClick}
+                  >
+                    {importStatus === "success"
+                      ? "Imported"
+                      : importStatus === "error"
+                      ? "Import failed"
+                      : "Import items"}
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/json"
+                    style={{ display: "none" }}
+                    onChange={handleFileChange}
+                  />
+                </>
+              )}
               <button
                 className={`ghost ${pendingSave ? "pending-confirm" : ""}`}
                 onClick={async () => {

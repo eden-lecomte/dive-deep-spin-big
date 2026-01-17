@@ -45,7 +45,7 @@ export default function Home() {
       localStorage.setItem("wheel:lastRoomTimestamp", Date.now().toString());
     }
   }, [roomParam]);
-  
+
   // Get default items from localStorage or use DEFAULT_ITEMS
   // Recompute when room changes to get fresh defaults for new rooms
   const defaultItems = useMemo(() => {
@@ -85,10 +85,8 @@ export default function Home() {
     `wheel:norepeat:${room}`,
     "off"
   );
-  const [presentationModeState, setPresentationMode] = useLocalStorageState<boolean>(
-    `wheel:presentation:${room}`,
-    false
-  );
+  const [presentationModeState, setPresentationMode] =
+    useLocalStorageState<boolean>(`wheel:presentation:${room}`, false);
   const presentationMode = presentationModeState ?? false;
   const [userName, setUserName] = useLocalStorageState<string>(
     `wheel:username`,
@@ -109,33 +107,42 @@ export default function Home() {
     []
   );
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [disconnectMessage, setDisconnectMessage] = useState<string | null>(null);
+  const [disconnectMessage, setDisconnectMessage] = useState<string | null>(
+    null
+  );
   const [socketReady, setSocketReady] = useState(false);
   // Initialize reconnecting state immediately if we have a room param
   // This prevents showing default/empty room data on refresh
   const [isReconnecting, setIsReconnecting] = useState(() => {
     if (typeof window === "undefined") return false;
-    const urlRoomParam = new URLSearchParams(window.location.search).get("room");
+    const urlRoomParam = new URLSearchParams(window.location.search).get(
+      "room"
+    );
     // Only show reconnecting if we have a room param
     return !!urlRoomParam;
   });
-  const [reconnectingStartTime, setReconnectingStartTime] = useState<number | null>(null);
+  const [reconnectingStartTime, setReconnectingStartTime] = useState<
+    number | null
+  >(null);
   const [multipleConnectionsPrompt, setMultipleConnectionsPrompt] = useState<{
     message: string;
   } | null>(null);
   const [victoryWinners, setVictoryWinners] = useState<string[] | null>(null);
-  const [toastMessages, setToastMessages] = useState<Array<{ id: string; message: string; type?: "success" | "error" }>>([]);
+  const [toastMessages, setToastMessages] = useState<
+    Array<{ id: string; message: string; type?: "success" | "error" }>
+  >([]);
   const [reconnectTrigger, setReconnectTrigger] = useState(0);
   const [teamState, setTeamState] = useState<TeamState | null>(null);
   const [teamShuffle, setTeamShuffle] = useState(false);
   const [adminClaimed, setAdminClaimed] = useState(false);
   const [adminName, setAdminName] = useState<string | null>(null);
   const [adminPin, setAdminPin] = useState("");
-  const [players, setPlayers] = useState<Array<{ name: string; connected: boolean }>>([]);
-  const [playerStats, setPlayerStats] = useLocalStorageState<Record<string, { wins: number; losses: number }>>(
-    `wheel:playerStats:${room}`,
-    {}
-  );
+  const [players, setPlayers] = useState<
+    Array<{ name: string; connected: boolean }>
+  >([]);
+  const [playerStats, setPlayerStats] = useLocalStorageState<
+    Record<string, { wins: number; losses: number }>
+  >(`wheel:playerStats:${room}`, {});
   const lastItemsSourceRef = useRef<"local" | "server" | null>(null);
   const itemsRef = useRef<WheelItem[]>(items);
   const suppressSettingsBroadcastRef = useRef(false);
@@ -239,16 +246,13 @@ export default function Home() {
     () => Object.keys(roomVotes).filter((name) => name.trim()),
     [roomVotes]
   );
-  const teamCandidates = useMemo(
-    () => {
-      if (voterNames.length) {
-        return voterNames;
-      }
-      // Extract names from player objects
-      return players.map(p => typeof p === 'string' ? p : p.name);
-    },
-    [players, voterNames]
-  );
+  const teamCandidates = useMemo(() => {
+    if (voterNames.length) {
+      return voterNames;
+    }
+    // Extract names from player objects
+    return players.map((p) => (typeof p === "string" ? p : p.name));
+  }, [players, voterNames]);
 
   const spinToItem = useCallback(
     (itemId: string, targetRotation: number) => {
@@ -358,7 +362,9 @@ export default function Home() {
     let deviceId = localStorage.getItem(STORAGE_KEY);
     if (!deviceId) {
       // Generate a unique device ID
-      deviceId = `device-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+      deviceId = `device-${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(2, 15)}`;
       localStorage.setItem(STORAGE_KEY, deviceId);
     }
     return deviceId;
@@ -366,13 +372,13 @@ export default function Home() {
 
   useEffect(() => {
     if (!roomParam) return;
-    
+
     // Don't clear room param on initial load - wait for userName to load from localStorage
     // Only validate name after we've had a chance to load from localStorage
     // Check if userName might still be loading (empty string could mean not loaded yet)
     // We'll let the user stay in the room and they can enter their name if needed
     // The room param should persist regardless of userName state
-    
+
     // Close any existing WebSocket connection before creating a new one
     if (wsRef.current) {
       try {
@@ -382,12 +388,14 @@ export default function Home() {
       }
       wsRef.current = null;
     }
-    
+
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const deviceId = getDeviceId();
     const wsUrl = `${protocol}://${
       window.location.host
-    }/ws?room=${encodeURIComponent(room)}&deviceId=${encodeURIComponent(deviceId)}`;
+    }/ws?room=${encodeURIComponent(room)}&deviceId=${encodeURIComponent(
+      deviceId
+    )}`;
 
     console.log("[CLIENT] Creating new WebSocket connection to:", wsUrl);
     const ws = new WebSocket(wsUrl);
@@ -411,7 +419,11 @@ export default function Home() {
       // If admin was previously unlocked, restore admin status on reconnect
       // Only auto-restore if we haven't just attempted a manual unlock
       // Use refs to get latest values without causing reconnection
-      if (adminUnlockedRef.current && adminPinSessionRef.current && !manualUnlockAttemptedRef.current) {
+      if (
+        adminUnlockedRef.current &&
+        adminPinSessionRef.current &&
+        !manualUnlockAttemptedRef.current
+      ) {
         ws.send(
           JSON.stringify({
             type: "admin_unlock",
@@ -457,9 +469,10 @@ export default function Home() {
           }
           if (teamState !== undefined) {
             // Backward compatibility: if teamState doesn't have mode, default to "teams"
-            const normalizedTeamState = teamState && !teamState.mode 
-              ? { ...teamState, mode: "teams" as const }
-              : teamState;
+            const normalizedTeamState =
+              teamState && !teamState.mode
+                ? { ...teamState, mode: "teams" as const }
+                : teamState;
             setTeamState(normalizedTeamState);
           }
           if (typeof adminClaimed === "boolean") {
@@ -470,8 +483,8 @@ export default function Home() {
           }
           if (Array.isArray(players)) {
             // Handle both old format (strings) and new format (objects with name/connected)
-            const normalizedPlayers = players.map(p => 
-              typeof p === 'string' ? { name: p, connected: true } : p
+            const normalizedPlayers = players.map((p) =>
+              typeof p === "string" ? { name: p, connected: true } : p
             );
             setPlayers(normalizedPlayers);
           }
@@ -481,7 +494,12 @@ export default function Home() {
           }
           if (settings) {
             suppressSettingsBroadcastRef.current = true;
-            const { mysteryEnabled, votingEnabled, noRepeatMode, presentationMode } = settings;
+            const {
+              mysteryEnabled,
+              votingEnabled,
+              noRepeatMode,
+              presentationMode,
+            } = settings;
             if (typeof mysteryEnabled === "boolean") {
               setMysteryEnabled(mysteryEnabled);
             }
@@ -508,9 +526,10 @@ export default function Home() {
         if (message?.type === "teams") {
           const { teamState } = message.payload || {};
           // Backward compatibility: if teamState doesn't have mode, default to "teams"
-          const normalizedTeamState = teamState && !teamState.mode 
-            ? { ...teamState, mode: "teams" as const }
-            : teamState;
+          const normalizedTeamState =
+            teamState && !teamState.mode
+              ? { ...teamState, mode: "teams" as const }
+              : teamState;
           setTeamState(normalizedTeamState ?? null);
         }
         if (message?.type === "admin_status") {
@@ -528,7 +547,8 @@ export default function Home() {
             setAdminUnlocked(true);
             setAdminClaimed(true);
             // Use pin from ref (most up-to-date) or session, fallback to state
-            const pinValue = adminPinRef.current || adminPinSession || adminPin.trim();
+            const pinValue =
+              adminPinRef.current || adminPinSession || adminPin.trim();
             if (pinValue) {
               adminPinRef.current = pinValue;
               setAdminPinSession(pinValue);
@@ -548,8 +568,8 @@ export default function Home() {
           const { players } = message.payload || {};
           if (Array.isArray(players)) {
             // Handle both old format (strings) and new format (objects with name/connected)
-            const normalizedPlayers = players.map(p => 
-              typeof p === 'string' ? { name: p, connected: true } : p
+            const normalizedPlayers = players.map((p) =>
+              typeof p === "string" ? { name: p, connected: true } : p
             );
             setPlayers(normalizedPlayers);
           }
@@ -586,7 +606,12 @@ export default function Home() {
           const { settings } = message.payload || {};
           if (settings) {
             suppressSettingsBroadcastRef.current = true;
-            const { mysteryEnabled, votingEnabled, noRepeatMode, presentationMode } = settings;
+            const {
+              mysteryEnabled,
+              votingEnabled,
+              noRepeatMode,
+              presentationMode,
+            } = settings;
             if (typeof mysteryEnabled === "boolean") {
               setMysteryEnabled(mysteryEnabled);
             }
@@ -630,7 +655,9 @@ export default function Home() {
             });
             console.log("[CLIENT] Victory winners state updated");
           } else {
-            console.log("[CLIENT] Victory message invalid - winners not array or empty");
+            console.log(
+              "[CLIENT] Victory message invalid - winners not array or empty"
+            );
           }
         }
       } catch {
@@ -640,7 +667,7 @@ export default function Home() {
 
     ws.onclose = (event) => {
       setSocketReady(false);
-      
+
       // Handle different disconnect reasons
       if (event.code === 4008) {
         // Kicked by admin
@@ -655,7 +682,9 @@ export default function Home() {
         }, 2000);
       } else if (event.code === 4009) {
         // Multiple connections from same device
-        setDisconnectMessage("Multiple connections detected. You can't log in as multiple users from the same device.");
+        setDisconnectMessage(
+          "Multiple connections detected. You can't log in as multiple users from the same device."
+        );
         // Remove room parameter to go back to join screen
         const url = new URL(window.location.href);
         url.searchParams.delete("room");
@@ -666,7 +695,9 @@ export default function Home() {
         }, 3000);
       } else if (event.code === 1006 || event.code === 1001) {
         // Abnormal closure or going away (server disconnect, network issue)
-        setDisconnectMessage("Connection lost. The server may have disconnected or there's a network issue.");
+        setDisconnectMessage(
+          "Connection lost. The server may have disconnected or there's a network issue."
+        );
       } else if (event.code !== 1000) {
         // Other non-normal closures
         const reason = event.reason || "Unknown reason";
@@ -679,7 +710,9 @@ export default function Home() {
 
     ws.onerror = () => {
       setSocketReady(false);
-      setDisconnectMessage("WebSocket error occurred. Please check your connection.");
+      setDisconnectMessage(
+        "WebSocket error occurred. Please check your connection."
+      );
     };
 
     return () => {
@@ -702,26 +735,40 @@ export default function Home() {
     if (!roomParam) return;
 
     const handleVisibilityChange = () => {
-      console.log("[CLIENT] Visibility changed:", document.visibilityState, "socketReady:", socketReady);
+      console.log(
+        "[CLIENT] Visibility changed:",
+        document.visibilityState,
+        "socketReady:",
+        socketReady
+      );
       // Only reconnect if page becomes visible and WebSocket is not ready
       if (document.visibilityState === "visible" && !socketReady) {
         const ws = wsRef.current;
-        const wsState = ws ? ws.readyState : 'null';
-        console.log("[CLIENT] WebSocket state:", wsState, "disconnectMessage:", disconnectMessage);
-        
+        const wsState = ws ? ws.readyState : "null";
+        console.log(
+          "[CLIENT] WebSocket state:",
+          wsState,
+          "disconnectMessage:",
+          disconnectMessage
+        );
+
         // Check if WebSocket is closed, closing, or null (cleaned up)
-        const isDisconnected = !ws || 
-          ws.readyState === WebSocket.CLOSED || 
+        const isDisconnected =
+          !ws ||
+          ws.readyState === WebSocket.CLOSED ||
           ws.readyState === WebSocket.CLOSING;
-        
+
         if (isDisconnected) {
           // Check if we have a disconnect message that indicates we shouldn't reconnect
-          const shouldReconnect = !disconnectMessage || 
-            (!disconnectMessage.includes("kicked") && 
-             !disconnectMessage.includes("Multiple connections"));
-          
+          const shouldReconnect =
+            !disconnectMessage ||
+            (!disconnectMessage.includes("kicked") &&
+              !disconnectMessage.includes("Multiple connections"));
+
           if (shouldReconnect) {
-            console.log("[CLIENT] Page visible, WebSocket disconnected, triggering reconnect...");
+            console.log(
+              "[CLIENT] Page visible, WebSocket disconnected, triggering reconnect..."
+            );
             // Close any existing connection first
             if (ws) {
               try {
@@ -732,16 +779,18 @@ export default function Home() {
             }
             // Trigger reconnection by incrementing reconnectTrigger
             // This will cause the WebSocket useEffect to re-run
-            setReconnectTrigger(prev => prev + 1);
+            setReconnectTrigger((prev) => prev + 1);
           } else {
-            console.log("[CLIENT] Not reconnecting - user was kicked or has multiple connections");
+            console.log(
+              "[CLIENT] Not reconnecting - user was kicked or has multiple connections"
+            );
           }
         }
       }
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    
+
     // Also check on focus (some browsers may not fire visibilitychange reliably)
     const handleFocus = () => {
       if (!socketReady && roomParam) {
@@ -749,9 +798,9 @@ export default function Home() {
         handleVisibilityChange();
       }
     };
-    
+
     window.addEventListener("focus", handleFocus);
-    
+
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", handleFocus);
@@ -887,7 +936,7 @@ export default function Home() {
       const shuffled = shuffleArray(teamCandidates);
       const mid = Math.ceil(shuffled.length / 2);
       setTeamState({
-        mode: "teams",
+        mode: "teams" as const,
         teamA: shuffled.slice(0, mid),
         teamB: shuffled.slice(mid),
       });
@@ -902,7 +951,7 @@ export default function Home() {
       const finalShuffle = shuffleArray(teamCandidates);
       const mid = Math.ceil(finalShuffle.length / 2);
       const finalState = {
-        mode: "teams",
+        mode: "teams" as const,
         teamA: finalShuffle.slice(0, mid),
         teamB: finalShuffle.slice(mid),
       };
@@ -1041,14 +1090,28 @@ export default function Home() {
     try {
       localStorage.setItem("wheel:defaultItems", JSON.stringify(items));
       const toastId = `toast-${Date.now()}-${Math.random()}`;
-      setToastMessages((prev) => [...prev, { id: toastId, message: "Items saved as default successfully!", type: "success" }]);
+      setToastMessages((prev) => [
+        ...prev,
+        {
+          id: toastId,
+          message: "Items saved as default successfully!",
+          type: "success",
+        },
+      ]);
       setTimeout(() => {
         setToastMessages((prev) => prev.filter((t) => t.id !== toastId));
       }, 3000);
       return true;
     } catch (error) {
       const toastId = `toast-${Date.now()}-${Math.random()}`;
-      setToastMessages((prev) => [...prev, { id: toastId, message: "Failed to save items as default.", type: "error" }]);
+      setToastMessages((prev) => [
+        ...prev,
+        {
+          id: toastId,
+          message: "Failed to save items as default.",
+          type: "error",
+        },
+      ]);
       setTimeout(() => {
         setToastMessages((prev) => prev.filter((t) => t.id !== toastId));
       }, 3000);
@@ -1072,6 +1135,49 @@ export default function Home() {
     setStatusMessage("Spin result cleared.");
   }, []);
 
+  const exportItems = useCallback(() => {
+    const payload = JSON.stringify(items, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `wheel-items-${room || "room"}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    return true;
+  }, [items, room]);
+
+  const importItems = useCallback(
+    (payload: WheelItem[]) => {
+      const nextItems = payload
+        .filter((item) => item && typeof item.label === "string")
+        .map((item) => ({
+          id: item.id || randomId(),
+          label: item.label.trim(),
+          weight: typeof item.weight === "number" ? item.weight : 1,
+          imageUrl: item.imageUrl || undefined,
+          soundUrl: item.soundUrl || undefined,
+        }))
+        .filter((item) => item.label);
+      if (!nextItems.length) {
+        setStatusMessage("Import failed: no valid items.");
+        return false;
+      }
+      lastItemsSourceRef.current = "local";
+      setItems(() => {
+        pushItemsUpdate(nextItems);
+        return nextItems;
+      });
+      setStatusMessage("Items imported.");
+      return true;
+    },
+    [pushItemsUpdate, setItems]
+  );
+
+  const handleImportError = useCallback((message: string) => {
+    setStatusMessage(message);
+  }, []);
+
   const renamePlayer = useCallback(
     (oldName: string, newName: string) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -1079,7 +1185,9 @@ export default function Home() {
         return;
       }
       if (!adminUnlocked) {
-        setStatusMessage("You must be unlocked as admin to perform this action.");
+        setStatusMessage(
+          "You must be unlocked as admin to perform this action."
+        );
         return;
       }
       wsRef.current.send(
@@ -1099,7 +1207,9 @@ export default function Home() {
         return;
       }
       if (!adminUnlocked) {
-        setStatusMessage("You must be unlocked as admin to perform this action.");
+        setStatusMessage(
+          "You must be unlocked as admin to perform this action."
+        );
         return;
       }
       if (!confirm(`Are you sure you want to kick "${playerName}"?`)) {
@@ -1118,7 +1228,9 @@ export default function Home() {
   const awardPlayerWin = useCallback(
     (playerName: string) => {
       if (!adminUnlocked) {
-        setStatusMessage("You must be unlocked as admin to perform this action.");
+        setStatusMessage(
+          "You must be unlocked as admin to perform this action."
+        );
         return;
       }
       setPlayerStats((prev) => {
@@ -1130,7 +1242,14 @@ export default function Home() {
       });
       // Show toast notification for admin
       const toastId = `toast-${Date.now()}-${Math.random()}`;
-      setToastMessages((prev) => [...prev, { id: toastId, message: `Victory awarded to ${playerName}!`, type: "success" }]);
+      setToastMessages((prev) => [
+        ...prev,
+        {
+          id: toastId,
+          message: `Victory awarded to ${playerName}!`,
+          type: "success",
+        },
+      ]);
       // Auto-clear toast after 3 seconds
       setTimeout(() => {
         setToastMessages((prev) => prev.filter((t) => t.id !== toastId));
@@ -1153,7 +1272,9 @@ export default function Home() {
   const awardPlayerLoss = useCallback(
     (playerName: string) => {
       if (!adminUnlocked) {
-        setStatusMessage("You must be unlocked as admin to perform this action.");
+        setStatusMessage(
+          "You must be unlocked as admin to perform this action."
+        );
         return;
       }
       setPlayerStats((prev) => {
@@ -1170,7 +1291,9 @@ export default function Home() {
   const awardTeamWin = useCallback(
     (team: string[]) => {
       if (!adminUnlocked) {
-        setStatusMessage("You must be unlocked as admin to perform this action.");
+        setStatusMessage(
+          "You must be unlocked as admin to perform this action."
+        );
         return;
       }
       setPlayerStats((prev) => {
@@ -1184,7 +1307,14 @@ export default function Home() {
       // Show toast notification for admin
       const teamNames = team.join(", ");
       const toastId = `toast-${Date.now()}-${Math.random()}`;
-      setToastMessages((prev) => [...prev, { id: toastId, message: `Victory awarded to ${teamNames}!`, type: "success" }]);
+      setToastMessages((prev) => [
+        ...prev,
+        {
+          id: toastId,
+          message: `Victory awarded to ${teamNames}!`,
+          type: "success",
+        },
+      ]);
       // Auto-clear toast after 3 seconds
       setTimeout(() => {
         setToastMessages((prev) => prev.filter((t) => t.id !== toastId));
@@ -1207,7 +1337,9 @@ export default function Home() {
   const awardTeamLoss = useCallback(
     (team: string[]) => {
       if (!adminUnlocked) {
-        setStatusMessage("You must be unlocked as admin to perform this action.");
+        setStatusMessage(
+          "You must be unlocked as admin to perform this action."
+        );
         return;
       }
       setPlayerStats((prev) => {
@@ -1225,7 +1357,9 @@ export default function Home() {
   const resetPlayerStats = useCallback(
     (playerName: string) => {
       if (!adminUnlocked) {
-        setStatusMessage("You must be unlocked as admin to perform this action.");
+        setStatusMessage(
+          "You must be unlocked as admin to perform this action."
+        );
         return;
       }
       setPlayerStats((prev) => {
@@ -1319,16 +1453,19 @@ export default function Home() {
     }
   }
 
-  const applyQueryParams = useCallback((params: Record<string, string>) => {
-    if (typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    Object.entries(params).forEach(([key, value]) => {
-      url.searchParams.set(key, value);
-    });
-    // Use router.replace to update URL - this persists on refresh and updates Next.js state
-    const newUrl = url.pathname + url.search;
-    router.replace(newUrl);
-  }, [router]);
+  const applyQueryParams = useCallback(
+    (params: Record<string, string>) => {
+      if (typeof window === "undefined") return;
+      const url = new URL(window.location.href);
+      Object.entries(params).forEach(([key, value]) => {
+        url.searchParams.set(key, value);
+      });
+      // Use router.replace to update URL - this persists on refresh and updates Next.js state
+      const newUrl = url.pathname + url.search;
+      router.replace(newUrl);
+    },
+    [router]
+  );
 
   const voteSummary = useMemo<VoteSummaryEntry[]>(() => {
     return Object.entries(votesByItem)
@@ -1366,7 +1503,10 @@ export default function Home() {
 
   const [roomInput, setRoomInput] = useState(lastRoomFromStorage);
   const [playerNameInput, setPlayerNameInput] = useState(userName || "");
-  const [recentRoom, setRecentRoom] = useState<{ room: string; hasActivePlayers: boolean } | null>(null);
+  const [recentRoom, setRecentRoom] = useState<{
+    room: string;
+    hasActivePlayers: boolean;
+  } | null>(null);
   const [checkingRecentRoom, setCheckingRecentRoom] = useState(false);
 
   // Handle reconnecting state when we have a room param
@@ -1388,12 +1528,12 @@ export default function Home() {
         setReconnectingStartTime(Date.now());
       }
     }
-    
+
     // If socket is ready and we're reconnecting, start fade-out timer
     if (socketReady && isReconnecting) {
-        if (!reconnectingStartTime) {
-          // Just became ready, set start time if not set
-          setReconnectingStartTime(Date.now());
+      if (!reconnectingStartTime) {
+        // Just became ready, set start time if not set
+        setReconnectingStartTime(Date.now());
       } else {
         // Check if minimum time has passed
         const elapsed = Date.now() - reconnectingStartTime;
@@ -1411,7 +1551,13 @@ export default function Home() {
         }
       }
     }
-  }, [roomParam, applyQueryParams, socketReady, isReconnecting, reconnectingStartTime]);
+  }, [
+    roomParam,
+    applyQueryParams,
+    socketReady,
+    isReconnecting,
+    reconnectingStartTime,
+  ]);
 
   // Update playerNameInput when userName changes (e.g., when returning to landing screen)
   useEffect(() => {
@@ -1421,41 +1567,44 @@ export default function Home() {
   // Check for recent room when on landing screen
   useEffect(() => {
     if (roomParam) return; // Don't check if already in a room
-    
+
     if (typeof window === "undefined") return;
-    
+
     const lastRoom = localStorage.getItem("wheel:lastRoom");
     const lastRoomTimestamp = localStorage.getItem("wheel:lastRoomTimestamp");
-    
+
     if (!lastRoom || !lastRoomTimestamp) {
       setRecentRoom(null);
       return;
     }
-    
+
     // Check if room is within 2 hours (7200000 ms)
     const timestamp = parseInt(lastRoomTimestamp, 10);
     const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
-    
+
     if (timestamp < twoHoursAgo) {
       setRecentRoom(null);
       return;
     }
-    
+
     // Check if room has active players
     setCheckingRecentRoom(true);
-    
+
     // Create a temporary WebSocket connection to check room status
-    const wsUrl = typeof window !== "undefined" 
-      ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws?room=${lastRoom}`
-      : "";
-    
+    const wsUrl =
+      typeof window !== "undefined"
+        ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${
+            window.location.host
+          }/ws?room=${lastRoom}`
+        : "";
+
     if (!wsUrl) {
       setCheckingRecentRoom(false);
       return;
     }
-    
+
     const checkWs = new WebSocket(wsUrl);
-    
+
     checkWs.onopen = () => {
       checkWs.send(
         JSON.stringify({
@@ -1464,7 +1613,7 @@ export default function Home() {
         })
       );
     };
-    
+
     checkWs.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
@@ -1483,19 +1632,22 @@ export default function Home() {
       checkWs.close();
       setCheckingRecentRoom(false);
     };
-    
+
     checkWs.onerror = () => {
       setRecentRoom(null);
       setCheckingRecentRoom(false);
       checkWs.close();
     };
-    
+
     checkWs.onclose = () => {
       setCheckingRecentRoom(false);
     };
-    
+
     return () => {
-      if (checkWs.readyState === WebSocket.OPEN || checkWs.readyState === WebSocket.CONNECTING) {
+      if (
+        checkWs.readyState === WebSocket.OPEN ||
+        checkWs.readyState === WebSocket.CONNECTING
+      ) {
         checkWs.close();
       }
     };
@@ -1557,24 +1709,29 @@ export default function Home() {
   if (shouldShowLoading) {
     return (
       <div className="page reconnecting-loader">
-        <div style={{ 
-          display: "flex", 
-          flexDirection: "column", 
-          alignItems: "center", 
-          justifyContent: "center", 
-          minHeight: "100vh",
-          gap: "16px"
-        }}>
-          <div style={{
-            width: "48px",
-            height: "48px",
-            border: "4px solid var(--border)",
-            borderTop: "4px solid var(--success)",
-            borderRadius: "50%",
-            animation: "spin 1s linear infinite"
-          }} />
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: "100vh",
+            gap: "16px",
+          }}
+        >
+          <div
+            style={{
+              width: "48px",
+              height: "48px",
+              border: "4px solid var(--border)",
+              borderTop: "4px solid var(--success)",
+              borderRadius: "50%",
+              animation: "spin 1s linear infinite",
+            }}
+          />
           <p className="subtle">
-            Reconnecting to room <span className="pill">{reconnectingRoomName}</span>...
+            Reconnecting to room{" "}
+            <span className="pill">{reconnectingRoomName}</span>...
           </p>
         </div>
       </div>
@@ -1594,7 +1751,10 @@ export default function Home() {
                 <button
                   className="primary"
                   onClick={() => {
-                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    if (
+                      wsRef.current &&
+                      wsRef.current.readyState === WebSocket.OPEN
+                    ) {
                       wsRef.current.send(
                         JSON.stringify({
                           type: "multiple_connections_confirm",
@@ -1610,7 +1770,10 @@ export default function Home() {
                 <button
                   className="ghost"
                   onClick={() => {
-                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    if (
+                      wsRef.current &&
+                      wsRef.current.readyState === WebSocket.OPEN
+                    ) {
                       wsRef.current.send(
                         JSON.stringify({
                           type: "multiple_connections_confirm",
@@ -1672,17 +1835,27 @@ export default function Home() {
             </button>
           </div>
           {recentRoom && recentRoom.hasActivePlayers && (
-            <div className="recent-room-card" style={{
-              marginTop: "24px",
-              padding: "16px",
-              border: "1px solid var(--border)",
-              borderRadius: "12px",
-              background: "var(--panel)",
-            }}>
+            <div
+              className="recent-room-card"
+              style={{
+                marginTop: "24px",
+                padding: "16px",
+                border: "1px solid var(--border)",
+                borderRadius: "12px",
+                background: "var(--panel)",
+              }}
+            >
               <p className="subtle" style={{ marginBottom: "12px" }}>
                 Recent room
               </p>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", justifyContent: "space-between" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  justifyContent: "space-between",
+                }}
+              >
                 <div>
                   <p style={{ fontWeight: 500, marginBottom: "4px" }}>
                     Room: <span className="pill">{recentRoom.room}</span>
@@ -1707,11 +1880,13 @@ export default function Home() {
             </div>
           )}
           {checkingRecentRoom && (
-            <div style={{
-              marginTop: "24px",
-              padding: "16px",
-              textAlign: "center",
-            }}>
+            <div
+              style={{
+                marginTop: "24px",
+                padding: "16px",
+                textAlign: "center",
+              }}
+            >
               <p className="subtle">Checking for recent room...</p>
             </div>
           )}
@@ -1787,11 +1962,15 @@ export default function Home() {
           {toastMessages.map((toast, index) => (
             <div
               key={toast.id}
-              className={`toast-notification ${toast.type === "error" ? "toast-error" : ""}`}
+              className={`toast-notification ${
+                toast.type === "error" ? "toast-error" : ""
+              }`}
               style={{ top: `${24 + index * 45}px` }}
             >
               <div className="toast-content">
-                <span className="toast-icon">{toast.type === "error" ? "✕" : "✓"}</span>
+                <span className="toast-icon">
+                  {toast.type === "error" ? "✕" : "✓"}
+                </span>
                 <span>{toast.message}</span>
               </div>
             </div>
@@ -1808,7 +1987,10 @@ export default function Home() {
               <button
                 className="primary"
                 onClick={() => {
-                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  if (
+                    wsRef.current &&
+                    wsRef.current.readyState === WebSocket.OPEN
+                  ) {
                     wsRef.current.send(
                       JSON.stringify({
                         type: "multiple_connections_confirm",
@@ -1825,7 +2007,10 @@ export default function Home() {
               <button
                 className="ghost"
                 onClick={() => {
-                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  if (
+                    wsRef.current &&
+                    wsRef.current.readyState === WebSocket.OPEN
+                  ) {
                     wsRef.current.send(
                       JSON.stringify({
                         type: "multiple_connections_confirm",
@@ -1858,67 +2043,74 @@ export default function Home() {
 
       {socketReady && (
         <main>
-          <div className={`layout ${viewParam ? "view-mode" : ""} ${presentationMode ? "presentation-mode" : ""}`}>
+          <div
+            className={`layout ${viewParam ? "view-mode" : ""} ${
+              presentationMode ? "presentation-mode" : ""
+            }`}
+          >
             <WheelSection
-            viewMode={viewParam}
-            showSpin={adminUnlocked}
-            rotation={rotation}
-            spinDuration={SPIN_DURATION}
-            isSpinning={isSpinning}
-            itemsCount={items.length}
-            segments={segments}
-            gradient={gradient}
-            hiddenLabels={hiddenLabels}
-            pendingResultId={pendingResultId}
-            landedItem={landedItem}
-            teamState={teamState}
-            teamShuffle={teamShuffle}
-            statusMessage={statusMessage}
-            adminUnlocked={adminUnlocked}
-            presentationMode={presentationMode}
-            votingEnabled={votingEnabled}
-            voteTotals={voteTotals}
-            onSpin={() => requestSpin("manual")}
-            onResetRotation={() => setRotation(0)}
-            onCreateTeams={createTeams}
-            onCreateFreeForAll={createFreeForAll}
-            onAwardTeamWin={awardTeamWin}
-            onAwardTeamLoss={awardTeamLoss}
-          />
-
-          {!viewParam && (
-            <section className="panel">
-              <GamesListPanel
-                items={items}
-                hiddenLabels={false}
-                roomVotes={effectiveRoomVotes}
-                votingEnabled={votingEnabled}
-                votesByItem={votesByItem}
-                voteSummary={voteSummary}
-                noRepeatMode={noRepeatMode}
-                landedItemId={landedItemId}
-                usedItemIds={usedItemIds}
-                onSetVote={setVote}
-              />
-            </section>
-          )}
-        </div>
-
-        {!viewParam && adminUnlocked && (
-          <div className="edit-panel-fullwidth">
-            <EditPanel
-              editLocked={editLocked}
-              canEdit={canEdit}
-              items={items}
-              draftItem={draftItem}
-              onUpdateItem={updateItem}
-              onRemoveItem={removeItem}
-              onDraftChange={setDraftItem}
-              onDraftSubmit={handleDraftSubmit}
-              onSaveAsDefault={saveAsDefault}
+              viewMode={viewParam}
+              showSpin={adminUnlocked}
+              rotation={rotation}
+              spinDuration={SPIN_DURATION}
+              isSpinning={isSpinning}
+              itemsCount={items.length}
+              segments={segments}
+              gradient={gradient}
+              hiddenLabels={hiddenLabels}
+              pendingResultId={pendingResultId}
+              landedItem={landedItem}
+              teamState={teamState}
+              teamShuffle={teamShuffle}
+              statusMessage={statusMessage}
+              adminUnlocked={adminUnlocked}
+              presentationMode={presentationMode}
+              votingEnabled={votingEnabled}
+              voteTotals={voteTotals}
+              onSpin={() => requestSpin("manual")}
+              onResetRotation={() => setRotation(0)}
+              onCreateTeams={createTeams}
+              onCreateFreeForAll={createFreeForAll}
+              onAwardTeamWin={awardTeamWin}
+              onAwardTeamLoss={awardTeamLoss}
             />
+
+            {!viewParam && (
+              <section className="panel">
+                <GamesListPanel
+                  items={items}
+                  hiddenLabels={false}
+                  roomVotes={effectiveRoomVotes}
+                  votingEnabled={votingEnabled}
+                  votesByItem={votesByItem}
+                  voteSummary={voteSummary}
+                  noRepeatMode={noRepeatMode}
+                  landedItemId={landedItemId}
+                  usedItemIds={usedItemIds}
+                  onSetVote={setVote}
+                />
+              </section>
+            )}
           </div>
-        )}
+
+          {!viewParam && adminUnlocked && (
+            <div className="edit-panel-fullwidth">
+              <EditPanel
+                editLocked={editLocked}
+                canEdit={canEdit}
+                items={items}
+                draftItem={draftItem}
+                onUpdateItem={updateItem}
+                onRemoveItem={removeItem}
+                onDraftChange={setDraftItem}
+                onDraftSubmit={handleDraftSubmit}
+                onSaveAsDefault={saveAsDefault}
+                onExportItems={exportItems}
+                onImportItems={importItems}
+                onImportError={handleImportError}
+              />
+            </div>
+          )}
 
           {!viewParam && adminUnlocked && (
             <div className="edit-panel-fullwidth">
