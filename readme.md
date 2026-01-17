@@ -1,3 +1,5 @@
+Dive Deep Spin Big is a real-time, multiplayer game selector with a spinning wheel, voting, mystery mode, admin controls, and team generation. It uses Next.js with a custom WebSocket server to keep rooms in sync across connected devices.
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
