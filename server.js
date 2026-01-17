@@ -747,6 +747,41 @@ app.prepare().then(() => {
         return;
       }
 
+      if (message?.type === "check_room_status") {
+        const { roomToCheck } = message.payload || {};
+        if (!roomToCheck) {
+          ws.send(
+            JSON.stringify({
+              type: "room_status",
+              payload: {
+                room: roomToCheck || "",
+                hasActivePlayers: false,
+                activeCount: 0,
+              },
+            })
+          );
+          return;
+        }
+        
+        const roomClients = getRoomClients(roomToCheck);
+        const OPEN_STATE = WebSocket.OPEN || 1;
+        const activeConnections = Array.from(roomClients).filter(
+          (client) => client.readyState === OPEN_STATE
+        ).length;
+        
+        ws.send(
+          JSON.stringify({
+            type: "room_status",
+            payload: {
+              room: roomToCheck,
+              hasActivePlayers: activeConnections > 0,
+              activeCount: activeConnections,
+            },
+          })
+        );
+        return;
+      }
+
       if (message?.type === "teams") {
         const { teamState } = message.payload || {};
         if (!teamState) return;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import HeaderBar from "./HeaderBar";
 import WheelSection from "./WheelSection";
 import GamesListPanel from "./panels/GamesListPanel";
@@ -33,9 +33,18 @@ import type {
 
 export default function Home() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const roomParam = searchParams.get("room");
   const room = roomParam ?? "";
   const viewParam = searchParams.get("view") === "1";
+
+  // Store current room and timestamp in localStorage when in a room
+  useEffect(() => {
+    if (roomParam && roomParam.trim() && typeof window !== "undefined") {
+      localStorage.setItem("wheel:lastRoom", roomParam);
+      localStorage.setItem("wheel:lastRoomTimestamp", Date.now().toString());
+    }
+  }, [roomParam]);
   
   // Get default items from localStorage or use DEFAULT_ITEMS
   // Recompute when room changes to get fresh defaults for new rooms
@@ -102,6 +111,15 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [disconnectMessage, setDisconnectMessage] = useState<string | null>(null);
   const [socketReady, setSocketReady] = useState(false);
+  // Initialize reconnecting state immediately if we have a room param
+  // This prevents showing default/empty room data on refresh
+  const [isReconnecting, setIsReconnecting] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const urlRoomParam = new URLSearchParams(window.location.search).get("room");
+    // Only show reconnecting if we have a room param
+    return !!urlRoomParam;
+  });
+  const [reconnectingStartTime, setReconnectingStartTime] = useState<number | null>(null);
   const [multipleConnectionsPrompt, setMultipleConnectionsPrompt] = useState<{
     message: string;
   } | null>(null);
@@ -349,14 +367,11 @@ export default function Home() {
   useEffect(() => {
     if (!roomParam) return;
     
-    // Validate that user has a name before entering room
-    if (!userName || !userName.trim()) {
-      // Remove room parameter to go back to join screen
-      const url = new URL(window.location.href);
-      url.searchParams.delete("room");
-      window.history.replaceState({}, "", url.toString());
-      return;
-    }
+    // Don't clear room param on initial load - wait for userName to load from localStorage
+    // Only validate name after we've had a chance to load from localStorage
+    // Check if userName might still be loading (empty string could mean not loaded yet)
+    // We'll let the user stay in the room and they can enter their name if needed
+    // The room param should persist regardless of userName state
     
     // Close any existing WebSocket connection before creating a new one
     if (wsRef.current) {
@@ -1305,12 +1320,15 @@ export default function Home() {
   }
 
   const applyQueryParams = useCallback((params: Record<string, string>) => {
+    if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
     Object.entries(params).forEach(([key, value]) => {
       url.searchParams.set(key, value);
     });
-    window.history.replaceState({}, "", url.toString());
-  }, []);
+    // Use router.replace to update URL - this persists on refresh and updates Next.js state
+    const newUrl = url.pathname + url.search;
+    router.replace(newUrl);
+  }, [router]);
 
   const voteSummary = useMemo<VoteSummaryEntry[]>(() => {
     return Object.entries(votesByItem)
@@ -1340,13 +1358,148 @@ export default function Home() {
     setDraftItem({ label: "", weight: 1, imageUrl: "", soundUrl: "" });
   }
 
-  const [roomInput, setRoomInput] = useState("");
+  // Get last room from localStorage (for pre-filling input, not auto-reconnect)
+  const lastRoomFromStorage = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("wheel:lastRoom") || "";
+  }, []);
+
+  const [roomInput, setRoomInput] = useState(lastRoomFromStorage);
   const [playerNameInput, setPlayerNameInput] = useState(userName || "");
+  const [recentRoom, setRecentRoom] = useState<{ room: string; hasActivePlayers: boolean } | null>(null);
+  const [checkingRecentRoom, setCheckingRecentRoom] = useState(false);
+
+  // Handle reconnecting state when we have a room param
+  useEffect(() => {
+    // Only handle reconnecting if we have a room param
+    if (!roomParam) {
+      // No room param - clear reconnecting state
+      setIsReconnecting(false);
+      setReconnectingStartTime(null);
+      return;
+    }
+
+    // Set reconnecting state and start time when we have a room param but socket isn't ready yet
+    if (!socketReady) {
+      if (!isReconnecting) {
+        setIsReconnecting(true);
+      }
+      if (!reconnectingStartTime) {
+        setReconnectingStartTime(Date.now());
+      }
+    }
+    
+    // If socket is ready and we're reconnecting, start fade-out timer
+    if (socketReady && isReconnecting) {
+        if (!reconnectingStartTime) {
+          // Just became ready, set start time if not set
+          setReconnectingStartTime(Date.now());
+      } else {
+        // Check if minimum time has passed
+        const elapsed = Date.now() - reconnectingStartTime;
+        const remaining = Math.max(0, 500 - elapsed);
+        if (remaining > 0) {
+          const timer = setTimeout(() => {
+            setIsReconnecting(false);
+            setReconnectingStartTime(null);
+          }, remaining);
+          return () => clearTimeout(timer);
+        } else {
+          // Minimum time has passed, can hide now
+          setIsReconnecting(false);
+          setReconnectingStartTime(null);
+        }
+      }
+    }
+  }, [roomParam, applyQueryParams, socketReady, isReconnecting, reconnectingStartTime]);
 
   // Update playerNameInput when userName changes (e.g., when returning to landing screen)
   useEffect(() => {
     setPlayerNameInput(userName || "");
   }, [userName]);
+
+  // Check for recent room when on landing screen
+  useEffect(() => {
+    if (roomParam) return; // Don't check if already in a room
+    
+    if (typeof window === "undefined") return;
+    
+    const lastRoom = localStorage.getItem("wheel:lastRoom");
+    const lastRoomTimestamp = localStorage.getItem("wheel:lastRoomTimestamp");
+    
+    if (!lastRoom || !lastRoomTimestamp) {
+      setRecentRoom(null);
+      return;
+    }
+    
+    // Check if room is within 2 hours (7200000 ms)
+    const timestamp = parseInt(lastRoomTimestamp, 10);
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+    
+    if (timestamp < twoHoursAgo) {
+      setRecentRoom(null);
+      return;
+    }
+    
+    // Check if room has active players
+    setCheckingRecentRoom(true);
+    
+    // Create a temporary WebSocket connection to check room status
+    const wsUrl = typeof window !== "undefined" 
+      ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws?room=${lastRoom}`
+      : "";
+    
+    if (!wsUrl) {
+      setCheckingRecentRoom(false);
+      return;
+    }
+    
+    const checkWs = new WebSocket(wsUrl);
+    
+    checkWs.onopen = () => {
+      checkWs.send(
+        JSON.stringify({
+          type: "check_room_status",
+          payload: { roomToCheck: lastRoom },
+        })
+      );
+    };
+    
+    checkWs.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === "room_status") {
+          const { room, hasActivePlayers } = message.payload || {};
+          if (room === lastRoom) {
+            setRecentRoom({
+              room: lastRoom,
+              hasActivePlayers: hasActivePlayers || false,
+            });
+          }
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+      checkWs.close();
+      setCheckingRecentRoom(false);
+    };
+    
+    checkWs.onerror = () => {
+      setRecentRoom(null);
+      setCheckingRecentRoom(false);
+      checkWs.close();
+    };
+    
+    checkWs.onclose = () => {
+      setCheckingRecentRoom(false);
+    };
+    
+    return () => {
+      if (checkWs.readyState === WebSocket.OPEN || checkWs.readyState === WebSocket.CONNECTING) {
+        checkWs.close();
+      }
+    };
+  }, [roomParam]);
 
   function handleSetPlayerName() {
     const name = playerNameInput.trim();
@@ -1361,6 +1514,10 @@ export default function Home() {
     setUserName(name);
     // Then create room
     const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+    // Store last room for auto-reconnect
+    if (typeof window !== "undefined") {
+      localStorage.setItem("wheel:lastRoom", code);
+    }
     applyQueryParams({ room: code });
   }
 
@@ -1371,6 +1528,10 @@ export default function Home() {
     if (!code) return;
     // Set name first
     setUserName(name);
+    // Store last room for auto-reconnect
+    if (typeof window !== "undefined") {
+      localStorage.setItem("wheel:lastRoom", code);
+    }
     // Then join room
     applyQueryParams({ room: code });
   }
@@ -1386,6 +1547,38 @@ export default function Home() {
     window.history.replaceState({}, "", url.toString());
     // Reload to show landing screen
     window.location.reload();
+  }
+
+  // Show loading spinner if we have a room param but socket isn't ready
+  // This prevents showing default/empty room data
+  const shouldShowLoading = roomParam && !socketReady;
+  // Get the room name to display
+  const reconnectingRoomName = roomParam;
+  if (shouldShowLoading) {
+    return (
+      <div className="page reconnecting-loader">
+        <div style={{ 
+          display: "flex", 
+          flexDirection: "column", 
+          alignItems: "center", 
+          justifyContent: "center", 
+          minHeight: "100vh",
+          gap: "16px"
+        }}>
+          <div style={{
+            width: "48px",
+            height: "48px",
+            border: "4px solid var(--border)",
+            borderTop: "4px solid var(--success)",
+            borderRadius: "50%",
+            animation: "spin 1s linear infinite"
+          }} />
+          <p className="subtle">
+            Reconnecting to room <span className="pill">{reconnectingRoomName}</span>...
+          </p>
+        </div>
+      </div>
+    );
   }
 
   if (!roomParam) {
@@ -1478,6 +1671,50 @@ export default function Home() {
               Create new room
             </button>
           </div>
+          {recentRoom && recentRoom.hasActivePlayers && (
+            <div className="recent-room-card" style={{
+              marginTop: "24px",
+              padding: "16px",
+              border: "1px solid var(--border)",
+              borderRadius: "12px",
+              background: "var(--panel)",
+            }}>
+              <p className="subtle" style={{ marginBottom: "12px" }}>
+                Recent room
+              </p>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", justifyContent: "space-between" }}>
+                <div>
+                  <p style={{ fontWeight: 500, marginBottom: "4px" }}>
+                    Room: <span className="pill">{recentRoom.room}</span>
+                  </p>
+                  <p className="subtle" style={{ fontSize: "0.85rem" }}>
+                    Active players in room
+                  </p>
+                </div>
+                <button
+                  className="primary"
+                  onClick={() => {
+                    if (playerNameInput.trim()) {
+                      setUserName(playerNameInput.trim());
+                    }
+                    applyQueryParams({ room: recentRoom.room });
+                  }}
+                  disabled={!playerNameInput.trim()}
+                >
+                  Rejoin
+                </button>
+              </div>
+            </div>
+          )}
+          {checkingRecentRoom && (
+            <div style={{
+              marginTop: "24px",
+              padding: "16px",
+              textAlign: "center",
+            }}>
+              <p className="subtle">Checking for recent room...</p>
+            </div>
+          )}
         </div>
       </>
     );
@@ -1619,9 +1856,10 @@ export default function Home() {
         />
       )}
 
-      <main>
-        <div className={`layout ${viewParam ? "view-mode" : ""} ${presentationMode ? "presentation-mode" : ""}`}>
-          <WheelSection
+      {socketReady && (
+        <main>
+          <div className={`layout ${viewParam ? "view-mode" : ""} ${presentationMode ? "presentation-mode" : ""}`}>
+            <WheelSection
             viewMode={viewParam}
             showSpin={adminUnlocked}
             rotation={rotation}
@@ -1682,39 +1920,40 @@ export default function Home() {
           </div>
         )}
 
-        {!viewParam && adminUnlocked && (
-          <div className="edit-panel-fullwidth">
-            <PlayerManagementPanel
-              players={players}
-              socketReady={socketReady}
-              adminName={adminName}
-              playerStats={playerStats}
-              onRenamePlayer={renamePlayer}
-              onKickPlayer={kickPlayer}
-              onAwardWin={awardPlayerWin}
-              onAwardLoss={awardPlayerLoss}
-              onResetStats={resetPlayerStats}
-            />
-          </div>
-        )}
+          {!viewParam && adminUnlocked && (
+            <div className="edit-panel-fullwidth">
+              <PlayerManagementPanel
+                players={players}
+                socketReady={socketReady}
+                adminName={adminName}
+                playerStats={playerStats}
+                onRenamePlayer={renamePlayer}
+                onKickPlayer={kickPlayer}
+                onAwardWin={awardPlayerWin}
+                onAwardLoss={awardPlayerLoss}
+                onResetStats={resetPlayerStats}
+              />
+            </div>
+          )}
 
-        {!viewParam && adminUnlocked && (
-          <div className="edit-panel-fullwidth">
-            <AdminControlsPanel
-              mysteryEnabled={mysteryEnabled}
-              noRepeatMode={noRepeatMode}
-              onMysteryToggle={setMysteryEnabled}
-              onNoRepeatModeChange={setNoRepeatMode}
-              onResetSessionHistory={() => setUsedItemIds([])}
-              onResetVotes={resetVotes}
-              onResetHistory={resetHistory}
-              onResetItems={resetItems}
-              onResetResult={resetResult}
-              onResetAdmin={resetAdmin}
-            />
-          </div>
-        )}
-      </main>
+          {!viewParam && adminUnlocked && (
+            <div className="edit-panel-fullwidth">
+              <AdminControlsPanel
+                mysteryEnabled={mysteryEnabled}
+                noRepeatMode={noRepeatMode}
+                onMysteryToggle={setMysteryEnabled}
+                onNoRepeatModeChange={setNoRepeatMode}
+                onResetSessionHistory={() => setUsedItemIds([])}
+                onResetVotes={resetVotes}
+                onResetHistory={resetHistory}
+                onResetItems={resetItems}
+                onResetResult={resetResult}
+                onResetAdmin={resetAdmin}
+              />
+            </div>
+          )}
+        </main>
+      )}
     </div>
   );
 }
