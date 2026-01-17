@@ -10,7 +10,11 @@ export type WheelItem = {
 
 export type NoRepeatMode = "off" | "consecutive" | "session";
 
-export type TeamState = { teamA: string[]; teamB: string[] };
+export type TeamState = { 
+  mode: "teams" | "freeforall";
+  teamA: string[]; 
+  teamB: string[]; 
+};
 
 export type WheelSegment = WheelItem & {
   start: number;

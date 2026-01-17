@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { VOTE_WEIGHTS } from "../../lib/constants";
-import type { VoteLevel, VoteSummaryEntry, WheelItem } from "../../lib/types";
+import type { NoRepeatMode, VoteLevel, VoteSummaryEntry, WheelItem } from "../../lib/types";
 
 type GamesListPanelProps = {
   items: WheelItem[];
@@ -11,6 +11,9 @@ type GamesListPanelProps = {
   votingEnabled?: boolean;
   votesByItem?: Record<string, VoteLevel>;
   voteSummary?: VoteSummaryEntry[];
+  noRepeatMode?: NoRepeatMode;
+  landedItemId?: string | null;
+  usedItemIds?: string[];
   onSetVote?: (itemId: string, level: VoteLevel) => void;
 };
 
@@ -21,6 +24,9 @@ export default function GamesListPanel({
   votingEnabled = false,
   votesByItem = {},
   voteSummary = [],
+  noRepeatMode = "off",
+  landedItemId = null,
+  usedItemIds = [],
   onSetVote,
 }: GamesListPanelProps) {
   // Calculate total weight for each item (base weight + vote weights)
@@ -34,7 +40,12 @@ export default function GamesListPanel({
       });
     });
     
-    return items.map((item) => {
+    // Sort items alphabetically by label
+    const sortedItems = [...items].sort((a, b) => 
+      a.label.localeCompare(b.label)
+    );
+    
+    return sortedItems.map((item) => {
       // Count votes for display
       const votes: { gold: number; silver: number; bronze: number } = {
         gold: 0,
@@ -60,6 +71,18 @@ export default function GamesListPanel({
   const totalOfAllWeights = useMemo(() => {
     return itemsWithWeights.reduce((sum, { totalWeight }) => sum + totalWeight, 0);
   }, [itemsWithWeights]);
+
+  // Determine which items are ineligible for voting based on no-repeat mode
+  const ineligibleItemIds = useMemo(() => {
+    const excluded = new Set<string>();
+    if (noRepeatMode === "consecutive" && landedItemId) {
+      excluded.add(landedItemId);
+    }
+    if (noRepeatMode === "session") {
+      usedItemIds.forEach((id) => excluded.add(id));
+    }
+    return excluded;
+  }, [noRepeatMode, landedItemId, usedItemIds]);
 
   return (
     <div className="panel-block">
@@ -102,18 +125,26 @@ export default function GamesListPanel({
                   )}
                   {votingEnabled && onSetVote && (
                     <div className="vote-actions-inline">
-                      {(["gold", "silver", "bronze"] as VoteLevel[]).map((level) => (
-                        <button
-                          key={level}
-                          className={`vote-inline ${level} ${
-                            votesByItem[item.id] === level ? "active" : ""
-                          }`}
-                          onClick={() => onSetVote(item.id, level)}
-                          title={`${level} (${VOTE_WEIGHTS[level]})`}
-                        >
-                          {level === "gold" ? "🥇" : level === "silver" ? "🥈" : "🥉"}
-                        </button>
-                      ))}
+                      {(["gold", "silver", "bronze"] as VoteLevel[]).map((level) => {
+                        const isIneligible = ineligibleItemIds.has(item.id);
+                        return (
+                          <button
+                            key={level}
+                            className={`vote-inline ${level} ${
+                              votesByItem[item.id] === level ? "active" : ""
+                            }`}
+                            onClick={() => !isIneligible && onSetVote(item.id, level)}
+                            disabled={isIneligible}
+                            title={
+                              isIneligible
+                                ? "This item is ineligible due to no-repeat mode"
+                                : `${level} (${VOTE_WEIGHTS[level]})`
+                            }
+                          >
+                            {level === "gold" ? "🥇" : level === "silver" ? "🥈" : "🥉"}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

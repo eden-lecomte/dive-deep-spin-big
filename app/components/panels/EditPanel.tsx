@@ -1,3 +1,5 @@
+import { useState, useEffect } from "react";
+import { useLocalStorageState } from "../../hooks/useStoredState";
 import type { DraftItem, WheelItem } from "../../lib/types";
 
 type EditPanelProps = {
@@ -9,7 +11,7 @@ type EditPanelProps = {
   onRemoveItem: (id: string) => void;
   onDraftChange: (draft: DraftItem) => void;
   onDraftSubmit: () => void;
-  onSaveAsDefault?: () => void;
+  onSaveAsDefault?: () => Promise<boolean> | boolean;
 };
 
 export default function EditPanel({
@@ -23,23 +25,64 @@ export default function EditPanel({
   onDraftSubmit,
   onSaveAsDefault,
 }: EditPanelProps) {
+  const [pendingSave, setPendingSave] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useLocalStorageState<boolean>(
+    "wheel:gamesListCollapsed",
+    false
+  );
+
+  useEffect(() => {
+    if (pendingSave) {
+      const timer = setTimeout(() => {
+        setPendingSave(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [pendingSave]);
   return (
     <div className="panel-block">
       <div className="panel-header">
-        <h3>Games list</h3>
+        <h3 style={{ margin: 0, flex: 1 }}>Games list</h3>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          {onSaveAsDefault && (
-            <button className="ghost" onClick={onSaveAsDefault} title="Save current items as default for new rooms">
-              Save as default
-            </button>
-          )}
           {editLocked && (
             <span className="warning-pill">Locked (admin required)</span>
           )}
+          <button
+            className="ghost"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            style={{ padding: "4px 8px", minWidth: "auto" }}
+            title={isCollapsed ? "Expand games list" : "Collapse games list"}
+          >
+            {isCollapsed ? "▶" : "▼"}
+          </button>
         </div>
       </div>
-      {canEdit ? (
+      {!isCollapsed && canEdit ? (
         <div className="edit-area">
+          {onSaveAsDefault && (
+            <div style={{ marginBottom: "16px", display: "flex", justifyContent: "flex-end" }}>
+              <button
+                className={`ghost ${pendingSave ? "pending-confirm" : ""}`}
+                onClick={async () => {
+                  if (pendingSave) {
+                    try {
+                      const result = await onSaveAsDefault();
+                      setPendingSave(false);
+                      return result;
+                    } catch (error) {
+                      setPendingSave(false);
+                      return false;
+                    }
+                  } else {
+                    setPendingSave(true);
+                  }
+                }}
+                title={pendingSave ? "Click again to confirm" : "Save current items as default for new rooms"}
+              >
+                {pendingSave ? "Confirm Save" : "Save as default"}
+              </button>
+            </div>
+          )}
           <div className="edit-list">
             {items.map((item) => (
               <div key={item.id} className="edit-row">
@@ -129,9 +172,9 @@ export default function EditPanel({
             </button>
           </div>
         </div>
-      ) : (
+      ) : !isCollapsed ? (
         <p className="subtle">Use the admin unlock code to edit this room.</p>
-      )}
+      ) : null}
     </div>
   );
 }

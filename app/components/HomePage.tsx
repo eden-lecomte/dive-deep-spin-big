@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import HeaderBar from "./HeaderBar";
 import WheelSection from "./WheelSection";
-import ModesPanel from "./panels/ModesPanel";
 import GamesListPanel from "./panels/GamesListPanel";
 import EditPanel from "./panels/EditPanel";
 import AdminAccessPanel from "./panels/AdminAccessPanel";
@@ -107,7 +106,7 @@ export default function Home() {
     message: string;
   } | null>(null);
   const [victoryWinners, setVictoryWinners] = useState<string[] | null>(null);
-  const [toastMessages, setToastMessages] = useState<Array<{ id: string; message: string }>>([]);
+  const [toastMessages, setToastMessages] = useState<Array<{ id: string; message: string; type?: "success" | "error" }>>([]);
   const [reconnectTrigger, setReconnectTrigger] = useState(0);
   const [teamState, setTeamState] = useState<TeamState | null>(null);
   const [teamShuffle, setTeamShuffle] = useState(false);
@@ -442,7 +441,11 @@ export default function Home() {
             setRoomVotes(roomVotes);
           }
           if (teamState !== undefined) {
-            setTeamState(teamState);
+            // Backward compatibility: if teamState doesn't have mode, default to "teams"
+            const normalizedTeamState = teamState && !teamState.mode 
+              ? { ...teamState, mode: "teams" as const }
+              : teamState;
+            setTeamState(normalizedTeamState);
           }
           if (typeof adminClaimed === "boolean") {
             setAdminClaimed(adminClaimed);
@@ -489,7 +492,11 @@ export default function Home() {
         }
         if (message?.type === "teams") {
           const { teamState } = message.payload || {};
-          setTeamState(teamState ?? null);
+          // Backward compatibility: if teamState doesn't have mode, default to "teams"
+          const normalizedTeamState = teamState && !teamState.mode 
+            ? { ...teamState, mode: "teams" as const }
+            : teamState;
+          setTeamState(normalizedTeamState ?? null);
         }
         if (message?.type === "admin_status") {
           const { claimed, adminName: statusAdminName } = message.payload || {};
@@ -852,6 +859,7 @@ export default function Home() {
       const shuffled = shuffleArray(teamCandidates);
       const mid = Math.ceil(shuffled.length / 2);
       setTeamState({
+        mode: "teams",
         teamA: shuffled.slice(0, mid),
         teamB: shuffled.slice(mid),
       });
@@ -866,6 +874,7 @@ export default function Home() {
       const finalShuffle = shuffleArray(teamCandidates);
       const mid = Math.ceil(finalShuffle.length / 2);
       const finalState = {
+        mode: "teams",
         teamA: finalShuffle.slice(0, mid),
         teamB: finalShuffle.slice(mid),
       };
@@ -882,6 +891,31 @@ export default function Home() {
         );
       }
     }, 1600);
+  }, [teamCandidates]);
+
+  const createFreeForAll = useCallback(() => {
+    if (!teamCandidates.length) {
+      setStatusMessage("No players yet. Ask players to join or vote first.");
+      return;
+    }
+    setStatusMessage(null);
+    const shuffled = shuffleArray(teamCandidates);
+    const finalState = {
+      mode: "freeforall" as const,
+      teamA: shuffled,
+      teamB: [],
+    };
+    setTeamState(finalState);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "teams",
+          payload: {
+            teamState: finalState,
+          },
+        })
+      );
+    }
   }, [teamCandidates]);
 
   const claimAdmin = useCallback(() => {
@@ -956,10 +990,25 @@ export default function Home() {
     setStatusMessage("Wheel items reset to defaults.");
   }, [setItems]);
 
-  const saveAsDefault = useCallback(() => {
-    if (typeof window !== "undefined") {
+  const saveAsDefault = useCallback(async (): Promise<boolean> => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    try {
       localStorage.setItem("wheel:defaultItems", JSON.stringify(items));
-      setStatusMessage("Current items saved as default for new rooms.");
+      const toastId = `toast-${Date.now()}-${Math.random()}`;
+      setToastMessages((prev) => [...prev, { id: toastId, message: "Items saved as default successfully!", type: "success" }]);
+      setTimeout(() => {
+        setToastMessages((prev) => prev.filter((t) => t.id !== toastId));
+      }, 3000);
+      return true;
+    } catch (error) {
+      const toastId = `toast-${Date.now()}-${Math.random()}`;
+      setToastMessages((prev) => [...prev, { id: toastId, message: "Failed to save items as default.", type: "error" }]);
+      setTimeout(() => {
+        setToastMessages((prev) => prev.filter((t) => t.id !== toastId));
+      }, 3000);
+      return false;
     }
   }, [items]);
 
@@ -1037,7 +1086,7 @@ export default function Home() {
       });
       // Show toast notification for admin
       const toastId = `toast-${Date.now()}-${Math.random()}`;
-      setToastMessages((prev) => [...prev, { id: toastId, message: `Victory awarded to ${playerName}!` }]);
+      setToastMessages((prev) => [...prev, { id: toastId, message: `Victory awarded to ${playerName}!`, type: "success" }]);
       // Auto-clear toast after 3 seconds
       setTimeout(() => {
         setToastMessages((prev) => prev.filter((t) => t.id !== toastId));
@@ -1091,7 +1140,7 @@ export default function Home() {
       // Show toast notification for admin
       const teamNames = team.join(", ");
       const toastId = `toast-${Date.now()}-${Math.random()}`;
-      setToastMessages((prev) => [...prev, { id: toastId, message: `Victory awarded to ${teamNames}!` }]);
+      setToastMessages((prev) => [...prev, { id: toastId, message: `Victory awarded to ${teamNames}!`, type: "success" }]);
       // Auto-clear toast after 3 seconds
       setTimeout(() => {
         setToastMessages((prev) => prev.filter((t) => t.id !== toastId));
@@ -1439,6 +1488,7 @@ export default function Home() {
         viewMode={viewParam}
         socketReady={socketReady}
         votingEnabled={votingEnabled}
+        presentationMode={presentationMode}
         adminActive={adminUnlocked}
         adminPopoverOpen={Boolean(adminPopoverContent)}
         adminPopoverContent={adminPopoverContent}
@@ -1446,6 +1496,8 @@ export default function Home() {
         adminName={adminName}
         onAdminClick={() => setShowAdminAccess((prev) => !prev)}
         onLeaveRoom={leaveRoom}
+        onVotingToggle={() => setVotingEnabled(!votingEnabled)}
+        onPresentationToggle={() => setPresentationMode(!presentationMode)}
       />
 
       {disconnectMessage && (
@@ -1469,11 +1521,11 @@ export default function Home() {
           {toastMessages.map((toast, index) => (
             <div
               key={toast.id}
-              className="toast-notification"
+              className={`toast-notification ${toast.type === "error" ? "toast-error" : ""}`}
               style={{ top: `${24 + index * 45}px` }}
             >
               <div className="toast-content">
-                <span className="toast-icon">✓</span>
+                <span className="toast-icon">{toast.type === "error" ? "✕" : "✓"}</span>
                 <span>{toast.message}</span>
               </div>
             </div>
@@ -1556,9 +1608,13 @@ export default function Home() {
             teamShuffle={teamShuffle}
             statusMessage={statusMessage}
             adminUnlocked={adminUnlocked}
+            presentationMode={presentationMode}
+            votingEnabled={votingEnabled}
+            voteTotals={voteTotals}
             onSpin={() => requestSpin("manual")}
             onResetRotation={() => setRotation(0)}
             onCreateTeams={createTeams}
+            onCreateFreeForAll={createFreeForAll}
             onAwardTeamWin={awardTeamWin}
             onAwardTeamLoss={awardTeamLoss}
           />
@@ -1572,32 +1628,11 @@ export default function Home() {
                 votingEnabled={votingEnabled}
                 votesByItem={votesByItem}
                 voteSummary={voteSummary}
+                noRepeatMode={noRepeatMode}
+                landedItemId={landedItemId}
+                usedItemIds={usedItemIds}
                 onSetVote={setVote}
               />
-
-              {adminUnlocked && (
-                <>
-                  <ModesPanel
-                    votingEnabled={votingEnabled}
-                    mysteryEnabled={mysteryEnabled}
-                    noRepeatMode={noRepeatMode}
-                    presentationMode={presentationMode}
-                    controlsEnabled={adminUnlocked}
-                    onVotingToggle={setVotingEnabled}
-                    onMysteryToggle={setMysteryEnabled}
-                    onNoRepeatModeChange={setNoRepeatMode}
-                    onPresentationModeToggle={setPresentationMode}
-                    onResetSessionHistory={() => setUsedItemIds([])}
-                  />
-                  <AdminControlsPanel
-                    onResetVotes={resetVotes}
-                    onResetHistory={resetHistory}
-                    onResetItems={resetItems}
-                    onResetResult={resetResult}
-                    onResetAdmin={resetAdmin}
-                  />
-                </>
-              )}
             </section>
           )}
         </div>
@@ -1630,6 +1665,23 @@ export default function Home() {
               onAwardWin={awardPlayerWin}
               onAwardLoss={awardPlayerLoss}
               onResetStats={resetPlayerStats}
+            />
+          </div>
+        )}
+
+        {!viewParam && adminUnlocked && (
+          <div className="edit-panel-fullwidth">
+            <AdminControlsPanel
+              mysteryEnabled={mysteryEnabled}
+              noRepeatMode={noRepeatMode}
+              onMysteryToggle={setMysteryEnabled}
+              onNoRepeatModeChange={setNoRepeatMode}
+              onResetSessionHistory={() => setUsedItemIds([])}
+              onResetVotes={resetVotes}
+              onResetHistory={resetHistory}
+              onResetItems={resetItems}
+              onResetResult={resetResult}
+              onResetAdmin={resetAdmin}
             />
           </div>
         )}

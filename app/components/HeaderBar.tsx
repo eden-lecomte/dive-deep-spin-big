@@ -7,6 +7,7 @@ type HeaderBarProps = {
   viewMode: boolean;
   socketReady: boolean;
   votingEnabled: boolean;
+  presentationMode: boolean;
   adminActive: boolean;
   adminPopoverOpen: boolean;
   adminPopoverContent: React.ReactNode | null;
@@ -14,6 +15,8 @@ type HeaderBarProps = {
   adminName: string | null;
   onAdminClick: () => void;
   onLeaveRoom: () => void;
+  onVotingToggle?: () => void;
+  onPresentationToggle?: () => void;
 };
 
 function hashString(value: string) {
@@ -39,6 +42,7 @@ export default function HeaderBar({
   viewMode,
   socketReady,
   votingEnabled,
+  presentationMode,
   adminActive,
   adminPopoverOpen,
   adminPopoverContent,
@@ -46,6 +50,8 @@ export default function HeaderBar({
   adminName,
   onAdminClick,
   onLeaveRoom,
+  onVotingToggle,
+  onPresentationToggle,
 }: HeaderBarProps) {
   const [pendingLeave, setPendingLeave] = useState(false);
 
@@ -125,10 +131,45 @@ export default function HeaderBar({
             </button>
             {adminPopoverOpen && adminPopoverContent}
           </div>
-          <div className="status">
-            <span className={`status-dot ${votingEnabled ? "ok" : "warn"}`} />
-            {votingEnabled ? "Voting enabled" : "Voting disabled"}
-          </div>
+          {adminActive ? (
+            <div className="mode-toggle">
+              <button
+                className={`mode-toggle-option ${votingEnabled && !presentationMode ? "active" : ""}`}
+                onClick={() => {
+                  if (presentationMode) {
+                    onPresentationToggle?.();
+                  }
+                  if (!votingEnabled) {
+                    onVotingToggle?.();
+                  }
+                }}
+              >
+                Vote
+              </button>
+              <div 
+                className="mode-toggle-slider" 
+                data-mode={presentationMode ? "presentation" : "voting"}
+              />
+              <button
+                className={`mode-toggle-option ${presentationMode ? "active" : ""}`}
+                onClick={() => {
+                  if (votingEnabled) {
+                    onVotingToggle?.();
+                  }
+                  if (!presentationMode) {
+                    onPresentationToggle?.();
+                  }
+                }}
+              >
+                Play
+              </button>
+            </div>
+          ) : (
+            <div className="status">
+              <span className={`status-dot ${votingEnabled ? "ok" : "warn"}`} />
+              {votingEnabled ? "Voting enabled" : "Voting disabled"}
+            </div>
+          )}
           <div className="status">
             <span className={`status-dot ${socketReady ? "ok" : "warn"}`} />
             {socketReady ? "Connected" : "Offline"}

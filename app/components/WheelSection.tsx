@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { CSSProperties } from "react";
 import type { TeamState, WheelItem, WheelSegment } from "../lib/types";
 
@@ -19,9 +19,13 @@ type WheelSectionProps = {
   teamShuffle: boolean;
   statusMessage: string | null;
   adminUnlocked: boolean;
+  presentationMode?: boolean;
+  votingEnabled?: boolean;
+  voteTotals?: Record<string, number>;
   onSpin: () => void;
   onResetRotation: () => void;
   onCreateTeams: () => void;
+  onCreateFreeForAll: () => void;
   onAwardTeamWin: (team: string[]) => void;
   onAwardTeamLoss: (team: string[]) => void;
 };
@@ -42,9 +46,13 @@ export default function WheelSection({
   teamShuffle,
   statusMessage,
   adminUnlocked,
+  presentationMode = false,
+  votingEnabled = false,
+  voteTotals = {},
   onSpin,
   onResetRotation,
   onCreateTeams,
+  onCreateFreeForAll,
   onAwardTeamWin,
   onAwardTeamLoss,
 }: WheelSectionProps) {
@@ -55,7 +63,7 @@ export default function WheelSection({
 
   // Track recently awarded victories to disable buttons temporarily
   const [recentlyAwarded, setRecentlyAwarded] = useState<{
-    team: "A" | "B" | null;
+    team: "A" | "B" | string | null;
     type: "win" | "loss" | null;
   }>({ team: null, type: null });
 
@@ -68,15 +76,40 @@ export default function WheelSection({
     }
   }, [recentlyAwarded]);
 
-  const handleTeamWin = (team: "A" | "B", teamNames: string[]) => {
+  const handleTeamWin = (team: "A" | "B" | string, teamNames: string[]) => {
     setRecentlyAwarded({ team, type: "win" });
     onAwardTeamWin(teamNames);
   };
 
-  const handleTeamLoss = (team: "A" | "B", teamNames: string[]) => {
+  const handleTeamLoss = (team: "A" | "B" | string, teamNames: string[]) => {
     setRecentlyAwarded({ team, type: "loss" });
     onAwardTeamLoss(teamNames);
   };
+
+  const legendData = useMemo(() => {
+    if (!presentationMode || !segments.length) return [];
+    
+    const totalWeight = segments.reduce((sum, seg) => {
+      const sliceSize = seg.end - seg.start;
+      return sum + sliceSize;
+    }, 0);
+
+    return segments
+      .map((segment) => {
+        const sliceSize = segment.end - segment.start;
+        const percentage = (sliceSize / totalWeight) * 100;
+        const votes = voteTotals[segment.id] || 0;
+        return {
+          ...segment,
+          percentage,
+          votes,
+        };
+      })
+      .sort((a, b) => {
+        // Sort by weight descending (percentage)
+        return b.percentage - a.percentage;
+      });
+  }, [presentationMode, segments, voteTotals]);
 
   return (
     <section className="wheel-card">
@@ -88,7 +121,7 @@ export default function WheelSection({
         <div
           className={`wheel ${isSpinning ? "spinning" : ""}`}
           style={{
-            backgroundImage: gradient,
+            ["--wheel-gradient" as string]: gradient,
             transform: `rotate(${rotation}deg)`,
           }}
         ></div>
@@ -105,6 +138,28 @@ export default function WheelSection({
         </div>
         <div className="center-cap" />
       </div>
+
+      {presentationMode && legendData.length > 0 && (
+        <div className="wheel-legend">
+          <h3 className="legend-title">Odds</h3>
+          <ul className="legend-list">
+            {legendData.map((item) => (
+              <li key={item.id} className="legend-item">
+                <div
+                  className="legend-color"
+                  style={{ backgroundColor: item.color }}
+                />
+                <span className="legend-label">{item.label}</span>
+                <span className="legend-value">
+                  {votingEnabled && item.votes > 0
+                    ? `${item.votes} vote${item.votes !== 1 ? "s" : ""}`
+                    : `${item.percentage.toFixed(1)}%`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {showSpin && (
         <div className="wheel-actions">
@@ -159,10 +214,15 @@ export default function WheelSection({
         <div className="team-area">
           <div className="team-header">
             <p className="eyebrow">Teams</p>
-            {adminUnlocked && (
-              <button className="primary" onClick={onCreateTeams}>
-                Create teams for {landedItem.label}
-              </button>
+            {adminUnlocked && !teamState && (
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button className="primary" onClick={onCreateTeams}>
+                  Create teams for {landedItem.label}
+                </button>
+                <button className="ghost" onClick={onCreateFreeForAll}>
+                  Free for all
+                </button>
+              </div>
             )}
           </div>
           {teamState && (
