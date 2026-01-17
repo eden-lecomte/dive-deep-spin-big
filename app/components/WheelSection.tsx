@@ -235,8 +235,7 @@ export default function WheelSection({
                       <button
                         className={`ghost win-button ${recentlyAwarded.team === "A" && recentlyAwarded.type === "win" ? "recently-awarded" : ""}`}
                         onClick={() => {
-                          const teamNames = teamState.teamA.map(n => typeof n === 'string' ? n : n.name || '');
-                          handleTeamWin("A", teamNames);
+                          handleTeamWin("A", teamState.teamA);
                         }}
                         disabled={recentlyAwarded.team === "A" && recentlyAwarded.type === "win"}
                         title="Award win to Team A"
@@ -246,8 +245,7 @@ export default function WheelSection({
                       <button
                         className={`ghost loss-button ${recentlyAwarded.team === "A" && recentlyAwarded.type === "loss" ? "recently-awarded" : ""}`}
                         onClick={() => {
-                          const teamNames = teamState.teamA.map(n => typeof n === 'string' ? n : n.name || '');
-                          handleTeamLoss("A", teamNames);
+                          handleTeamLoss("A", teamState.teamA);
                         }}
                         disabled={recentlyAwarded.team === "A" && recentlyAwarded.type === "loss"}
                         title="Award loss to Team A"
@@ -258,10 +256,9 @@ export default function WheelSection({
                   )}
                 </div>
                 <ul>
-                  {teamState.teamA.map((name, index) => {
-                    const nameStr = typeof name === 'string' ? name : name.name || '';
-                    return <li key={`a-${nameStr}-${index}`}>{nameStr}</li>;
-                  })}
+                  {teamState.teamA.map((name, index) => (
+                    <li key={`a-${name}-${index}`}>{name}</li>
+                  ))}
                 </ul>
               </div>
               <div className={`team-card ${teamShuffle ? "shuffle" : ""}`}>
@@ -272,8 +269,7 @@ export default function WheelSection({
                       <button
                         className={`ghost win-button ${recentlyAwarded.team === "B" && recentlyAwarded.type === "win" ? "recently-awarded" : ""}`}
                         onClick={() => {
-                          const teamNames = teamState.teamB.map(n => typeof n === 'string' ? n : n.name || '');
-                          handleTeamWin("B", teamNames);
+                          handleTeamWin("B", teamState.teamB);
                         }}
                         disabled={recentlyAwarded.team === "B" && recentlyAwarded.type === "win"}
                         title="Award win to Team B"
@@ -283,8 +279,7 @@ export default function WheelSection({
                       <button
                         className={`ghost loss-button ${recentlyAwarded.team === "B" && recentlyAwarded.type === "loss" ? "recently-awarded" : ""}`}
                         onClick={() => {
-                          const teamNames = teamState.teamB.map(n => typeof n === 'string' ? n : n.name || '');
-                          handleTeamLoss("B", teamNames);
+                          handleTeamLoss("B", teamState.teamB);
                         }}
                         disabled={recentlyAwarded.team === "B" && recentlyAwarded.type === "loss"}
                         title="Award loss to Team B"
@@ -295,10 +290,9 @@ export default function WheelSection({
                   )}
                 </div>
                 <ul>
-                  {teamState.teamB.map((name, index) => {
-                    const nameStr = typeof name === 'string' ? name : name.name || '';
-                    return <li key={`b-${nameStr}-${index}`}>{nameStr}</li>;
-                  })}
+                  {teamState.teamB.map((name, index) => (
+                    <li key={`b-${name}-${index}`}>{name}</li>
+                  ))}
                 </ul>
               </div>
             </div>

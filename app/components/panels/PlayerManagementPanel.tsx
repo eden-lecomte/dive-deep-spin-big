@@ -215,14 +215,14 @@ export default function PlayerManagementPanel({
                         onClick={() => handleKickClick(playerName)}
                         disabled={
                           !socketReady ||
-                          (adminName &&
+                          (Boolean(adminName) &&
                             playerName.trim().toLowerCase() ===
-                              adminName.trim().toLowerCase())
+                              (adminName ?? "").trim().toLowerCase())
                         }
                         title={
-                          adminName &&
+                          Boolean(adminName) &&
                           playerName.trim().toLowerCase() ===
-                            adminName.trim().toLowerCase()
+                            (adminName ?? "").trim().toLowerCase()
                             ? "Cannot kick yourself"
                             : pendingKick === playerName
                             ? "Click again to confirm kick"
