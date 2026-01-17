@@ -210,14 +210,24 @@ export default function WheelSection({
         </div>
       )}
 
-      {!viewMode && landedItem && !isSpinning && (
+      {!viewMode && !isSpinning && (adminUnlocked || teamState) && (
         <div className="team-area">
           <div className="team-header">
             <p className="eyebrow">Teams</p>
-            {adminUnlocked && !teamState && (
+            {adminUnlocked && (
               <div style={{ display: "flex", gap: "8px" }}>
-                <button className="primary" onClick={onCreateTeams}>
-                  Create teams for {landedItem.label}
+                {!teamState && (
+                  <button className="primary" onClick={onCreateTeams}>
+                    {landedItem ? `Create teams for ${landedItem.label}` : "Create teams"}
+                  </button>
+                )}
+                <button
+                  className="ghost"
+                  onClick={onCreateTeams}
+                  disabled={!teamState}
+                  title={teamState ? "Shuffle teams" : "Create teams first"}
+                >
+                  Shuffle teams
                 </button>
                 <button className="ghost" onClick={onCreateFreeForAll}>
                   Free for all

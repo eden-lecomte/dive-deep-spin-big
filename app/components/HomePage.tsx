@@ -242,22 +242,17 @@ export default function Home() {
   );
 
   const hiddenLabels = mysteryEnabled;
-  const voterNames = useMemo(
-    () => Object.keys(roomVotes).filter((name) => name.trim()),
-    [roomVotes]
-  );
   const teamCandidates = useMemo(() => {
-    if (voterNames.length) {
-      return voterNames;
-    }
-    // Extract names from player objects
-    return players.map((p) => (typeof p === "string" ? p : p.name));
-  }, [players, voterNames]);
+    const names = players.map((p) => (typeof p === "string" ? p : p.name));
+    return names.map((name) => name.trim()).filter(Boolean);
+  }, [players]);
 
   const spinToItem = useCallback(
     (itemId: string, targetRotation: number) => {
       const item = items.find((entry) => entry.id === itemId);
       if (!item) return;
+      setTeamState(null);
+      setTeamShuffle(false);
       setPendingResultId(itemId);
       setIsSpinning(true);
       setStatusMessage(null);
@@ -279,7 +274,7 @@ export default function Home() {
         }
       }, SPIN_DURATION);
     },
-    [items, noRepeatMode, setUsedItemIds]
+    [items, noRepeatMode, setTeamShuffle, setTeamState, setUsedItemIds]
   );
 
   const requestSpin = useCallback(
@@ -491,6 +486,11 @@ export default function Home() {
           if (Array.isArray(items)) {
             lastItemsSourceRef.current = "server";
             setItems(items);
+          } else if (adminUnlockedRef.current) {
+            const localItems = itemsRef.current;
+            if (localItems.length) {
+              pushItemsUpdate(localItems);
+            }
           }
           if (settings) {
             suppressSettingsBroadcastRef.current = true;
