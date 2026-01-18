@@ -111,6 +111,9 @@ export default function Home() {
     null
   );
   const [socketReady, setSocketReady] = useState(false);
+  // Track if this is the initial page load (not a subsequent WebSocket disconnection)
+  const isInitialMountRef = useRef(true);
+  const hasConnectedOnceRef = useRef(false);
   // Initialize reconnecting state immediately if we have a room param
   // This prevents showing default/empty room data on refresh
   const [isReconnecting, setIsReconnecting] = useState(() => {
@@ -118,7 +121,7 @@ export default function Home() {
     const urlRoomParam = new URLSearchParams(window.location.search).get(
       "room"
     );
-    // Only show reconnecting if we have a room param
+    // Only show reconnecting if we have a room param on initial load
     return !!urlRoomParam;
   });
   const [reconnectingStartTime, setReconnectingStartTime] = useState<
@@ -399,6 +402,8 @@ export default function Home() {
     ws.onopen = () => {
       setSocketReady(true);
       setDisconnectMessage(null); // Clear disconnect message on successful connection
+      // Mark that we've connected at least once (so we don't show reconnect screen on subsequent disconnects)
+      hasConnectedOnceRef.current = true;
       if (pendingSpinRef.current) {
         pendingSpinRef.current = false;
       }
@@ -1510,27 +1515,42 @@ export default function Home() {
   const [checkingRecentRoom, setCheckingRecentRoom] = useState(false);
 
   // Handle reconnecting state when we have a room param
+  // Only show reconnect screen on initial page load, not on subsequent WebSocket disconnects
   useEffect(() => {
     // Only handle reconnecting if we have a room param
     if (!roomParam) {
       // No room param - clear reconnecting state
       setIsReconnecting(false);
       setReconnectingStartTime(null);
+      // Reset initial mount flag when leaving a room
+      isInitialMountRef.current = true;
+      hasConnectedOnceRef.current = false;
       return;
     }
 
+    // Only show reconnect screen on initial page load (when component first mounts with room param)
+    // Don't show it if we've already connected once (e.g., WebSocket disconnects while tab is in background)
+    const shouldShowReconnect = isInitialMountRef.current && !hasConnectedOnceRef.current;
+
     // Set reconnecting state and start time when we have a room param but socket isn't ready yet
-    if (!socketReady) {
+    // BUT only on initial page load
+    if (!socketReady && shouldShowReconnect) {
       if (!isReconnecting) {
         setIsReconnecting(true);
       }
       if (!reconnectingStartTime) {
         setReconnectingStartTime(Date.now());
       }
+    } else if (!socketReady && !shouldShowReconnect) {
+      // Socket disconnected but we've already loaded once - don't show reconnect screen
+      setIsReconnecting(false);
+      setReconnectingStartTime(null);
     }
 
     // If socket is ready and we're reconnecting, start fade-out timer
     if (socketReady && isReconnecting) {
+      // Mark that initial mount is complete
+      isInitialMountRef.current = false;
       if (!reconnectingStartTime) {
         // Just became ready, set start time if not set
         setReconnectingStartTime(Date.now());
@@ -1702,8 +1722,8 @@ export default function Home() {
   }
 
   // Show loading spinner if we have a room param but socket isn't ready
-  // This prevents showing default/empty room data
-  const shouldShowLoading = roomParam && !socketReady;
+  // Only show loading screen on initial page load, not on subsequent WebSocket disconnects
+  const shouldShowLoading = roomParam && !socketReady && isInitialMountRef.current && !hasConnectedOnceRef.current;
   // Get the room name to display
   const reconnectingRoomName = roomParam;
   if (shouldShowLoading) {

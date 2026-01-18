@@ -1546,7 +1546,46 @@ button.pending-confirm {
   }
   
   .wheel-shell {
-    padding: 16px;
+    padding: 20px;
+    /* Reduce label radius on mobile to prevent labels from going off-screen */
+    /* Using a smaller percentage of viewport to ensure labels stay within bounds */
+    --label-radius: min(160px, 38vw);
+  }
+  
+  .view-mode .wheel-shell {
+    --label-radius: min(260px, 42vw);
+  }
+  
+  /* Slightly reduce wheel size on mobile to ensure labels fit within viewport */
+  .wheel {
+    width: min(72vw, 400px);
+  }
+  
+  .wheel-labels {
+    width: min(72vw, 400px);
+  }
+  
+  .view-mode .wheel {
+    width: min(92vw, 650px);
+  }
+  
+  .view-mode .wheel-labels {
+    width: min(92vw, 650px);
+  }
+  
+  /* On mobile, move legend below the wheel in presentation mode */
+  .layout.presentation-mode .wheel-card {
+    grid-template-columns: 1fr;
+  }
+  
+  .layout.presentation-mode .wheel-card > .wheel-shell {
+    grid-column: 1;
+  }
+  
+  .layout.presentation-mode .wheel-card > .wheel-legend {
+    grid-column: 1;
+    max-width: 100%;
+    margin-top: 12px;
   }
 }
 
