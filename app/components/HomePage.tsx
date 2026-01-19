@@ -2277,6 +2277,7 @@ export default function Home() {
               <ChatPanel
                 socketReady={socketReady}
                 userName={userName}
+                players={players}
                 onSendMessage={handleSendChatMessage}
                 messages={chatMessages}
               />
