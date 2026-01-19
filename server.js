@@ -18,6 +18,7 @@ const adminByRoom = new Map();
 const presenceByRoom = new Map();
 const itemsByRoom = new Map();
 const settingsByRoom = new Map();
+const bulletinBoardByRoom = new Map(); // Store bulletin board content per room
 const deviceConnectionsByRoom = new Map(); // Track device IDs per room
 const roomLastActivity = new Map(); // Track last activity timestamp for each room
 let clientCounter = 0;
@@ -117,15 +118,16 @@ function cleanupStaleRooms() {
     }
   }
   
-  // Also check rooms that have data but no activity tracking (legacy rooms)
-  // These will get activity tracking on their next interaction
-  const allRoomsWithData = new Set([
-    ...roomVotesByRoom.keys(),
-    ...itemsByRoom.keys(),
-    ...settingsByRoom.keys(),
-    ...adminByRoom.keys(),
-    ...teamStateByRoom.keys(),
-  ]);
+    // Also check rooms that have data but no activity tracking (legacy rooms)
+    // These will get activity tracking on their next interaction
+    const allRoomsWithData = new Set([
+      ...roomVotesByRoom.keys(),
+      ...itemsByRoom.keys(),
+      ...settingsByRoom.keys(),
+      ...adminByRoom.keys(),
+      ...teamStateByRoom.keys(),
+      ...bulletinBoardByRoom.keys(),
+    ]);
   
   for (const room of allRoomsWithData) {
     // Skip if already in cleanup list or has activity tracking
@@ -144,22 +146,23 @@ function cleanupStaleRooms() {
     // For now, we'll only clean rooms with activity tracking to be safe
   }
   
-  // Clean up stale rooms
-  for (const room of roomsToCleanup) {
-    console.log(`[CLEANUP] Removing stale room: ${room} (inactive for 24+ hours)`);
-    
-    // Remove all room data
-    rooms.delete(room);
-    lastSpinByRoom.delete(room);
-    roomVotesByRoom.delete(room);
-    teamStateByRoom.delete(room);
-    adminByRoom.delete(room);
-    presenceByRoom.delete(room);
-    itemsByRoom.delete(room);
-    settingsByRoom.delete(room);
-    deviceConnectionsByRoom.delete(room);
-    roomLastActivity.delete(room);
-  }
+    // Clean up stale rooms
+    for (const room of roomsToCleanup) {
+      console.log(`[CLEANUP] Removing stale room: ${room} (inactive for 24+ hours)`);
+      
+      // Remove all room data
+      rooms.delete(room);
+      lastSpinByRoom.delete(room);
+      roomVotesByRoom.delete(room);
+      teamStateByRoom.delete(room);
+      adminByRoom.delete(room);
+      presenceByRoom.delete(room);
+      itemsByRoom.delete(room);
+      settingsByRoom.delete(room);
+      bulletinBoardByRoom.delete(room);
+      deviceConnectionsByRoom.delete(room);
+      roomLastActivity.delete(room);
+    }
   
   if (roomsToCleanup.length > 0) {
     console.log(`[CLEANUP] Cleaned up ${roomsToCleanup.length} stale room(s)`);
@@ -283,6 +286,7 @@ app.prepare().then(() => {
       });
     const items = itemsByRoom.get(room) || null;
     const settings = settingsByRoom.get(room) || null;
+    const bulletinBoard = bulletinBoardByRoom.get(room) || null;
 
     if (hasExistingConnection) {
       // Send a blocking message that requires user confirmation
@@ -296,6 +300,7 @@ app.prepare().then(() => {
         })
       );
       // Store connection info for later use (players already in new format with connection status)
+      const bulletinBoard = bulletinBoardByRoom.get(room) || null;
       ws.pendingRoomData = {
         roomVotes,
         teamState,
@@ -304,6 +309,7 @@ app.prepare().then(() => {
         players, // Already in new format { name, connected }
         items,
         settings,
+        bulletinBoard,
       };
     } else {
       // Normal connection flow - send sync immediately
@@ -318,6 +324,7 @@ app.prepare().then(() => {
             players,
             items,
             settings,
+            bulletinBoard,
             clientId: ws.clientId,
           },
         })
@@ -383,6 +390,7 @@ app.prepare().then(() => {
                   players: pendingData.players,
                   items: pendingData.items,
                   settings: pendingData.settings,
+                  bulletinBoard: pendingData.bulletinBoard,
                   clientId: ws.clientId,
                 },
               })
@@ -913,6 +921,34 @@ app.prepare().then(() => {
             payload: { claimed: false, adminName: null },
           });
         }
+        return;
+      }
+
+      if (message?.type === "bulletin_board_update") {
+        updateRoomActivity(room);
+        const { content } = message.payload || {};
+        if (!ws.isAdmin) {
+          ws.send(
+            JSON.stringify({
+              type: "bulletin_board_result",
+              payload: { success: false, message: "Admin required." },
+            })
+          );
+          return;
+        }
+        // Store bulletin board content (can be null/empty to clear it)
+        bulletinBoardByRoom.set(room, content || null);
+        // Broadcast to all clients in the room
+        broadcast(room, {
+          type: "bulletin_board_update",
+          payload: { content: content || null },
+        });
+        ws.send(
+          JSON.stringify({
+            type: "bulletin_board_result",
+            payload: { success: true, message: "Bulletin board updated." },
+          })
+        );
         return;
       }
 
