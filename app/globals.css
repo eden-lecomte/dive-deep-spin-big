@@ -1819,6 +1819,146 @@ button.pending-confirm {
   color: var(--accent-strong);
 }
 
+/* Sparkly gradient glow effect for reactions */
+.chat-reaction-text {
+  font-weight: 700;
+  font-size: 1.1em;
+  letter-spacing: 0.05em;
+  background: linear-gradient(
+    45deg,
+    #ff6b9d,
+    #c44569,
+    #f8b500,
+    #ff6b9d,
+    #c44569,
+    #f8b500
+  );
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: sparkle-gradient 3s ease infinite, sparkle-glow 2s ease-in-out infinite;
+  text-shadow: 0 0 20px rgba(255, 107, 157, 0.5),
+               0 0 40px rgba(200, 69, 105, 0.4),
+               0 0 60px rgba(248, 181, 0, 0.3);
+  filter: drop-shadow(0 0 8px rgba(255, 107, 157, 0.6));
+  position: relative;
+  display: inline-block;
+}
+
+.chat-reaction-text::before {
+  content: attr(data-text);
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1;
+  background: linear-gradient(
+    45deg,
+    #ff6b9d,
+    #c44569,
+    #f8b500,
+    #ff6b9d,
+    #c44569,
+    #f8b500
+  );
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: blur(8px);
+  opacity: 0.7;
+  animation: sparkle-gradient 3s ease infinite;
+}
+
+.chat-reaction-text strong,
+.chat-reaction-text em,
+.chat-reaction-text span {
+  background: inherit;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: sparkle-gradient 3s ease infinite;
+}
+
+@keyframes sparkle-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes sparkle-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 8px rgba(255, 107, 157, 0.6))
+            drop-shadow(0 0 12px rgba(200, 69, 105, 0.4))
+            drop-shadow(0 0 16px rgba(248, 181, 0, 0.3));
+    transform: scale(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgba(255, 107, 157, 0.8))
+            drop-shadow(0 0 18px rgba(200, 69, 105, 0.6))
+            drop-shadow(0 0 24px rgba(248, 181, 0, 0.5));
+    transform: scale(1.02);
+  }
+}
+
+/* Individual letter sparkle effect */
+.reaction-sparkle-wrapper {
+  display: inline-block;
+}
+
+.reaction-emoji-display {
+  display: inline-block;
+  font-size: 1.2em;
+  margin-right: 4px;
+  animation: sparkle-emoji 2s ease-in-out infinite;
+}
+
+.reaction-sparkle-char {
+  display: inline-block;
+  animation: sparkle-letter 2s ease-in-out infinite;
+  animation-delay: calc(var(--i) * 0.1s);
+}
+
+@keyframes sparkle-letter {
+  0%, 100% {
+    transform: translateY(0) scale(1) rotate(0deg);
+    filter: brightness(1) drop-shadow(0 0 4px rgba(255, 107, 157, 0.6));
+  }
+  25% {
+    transform: translateY(-3px) scale(1.08) rotate(-2deg);
+    filter: brightness(1.4) drop-shadow(0 0 8px rgba(255, 107, 157, 0.9));
+  }
+  50% {
+    transform: translateY(0) scale(1) rotate(0deg);
+    filter: brightness(1) drop-shadow(0 0 4px rgba(200, 69, 105, 0.6));
+  }
+  75% {
+    transform: translateY(2px) scale(0.95) rotate(2deg);
+    filter: brightness(0.9) drop-shadow(0 0 6px rgba(248, 181, 0, 0.7));
+  }
+}
+
+@keyframes sparkle-emoji {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+  }
+  25% {
+    transform: scale(1.15) rotate(-5deg);
+  }
+  50% {
+    transform: scale(1) rotate(0deg);
+  }
+  75% {
+    transform: scale(1.1) rotate(5deg);
+  }
+}
+
 .help-list {
   list-style: none;
   display: grid;

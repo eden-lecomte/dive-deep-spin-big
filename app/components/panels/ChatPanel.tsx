@@ -49,7 +49,7 @@ const PRESET_REACTIONS = [
 ];
 
 // Render chat message with markdown and @mentions
-function ChatMessageContent({ text, players, currentUserName }: { text: string; players: Array<{ name: string; connected: boolean }>; currentUserName: string }) {
+function ChatMessageContent({ text, players, currentUserName, isReaction = false }: { text: string; players: Array<{ name: string; connected: boolean }>; currentUserName: string; isReaction?: boolean }) {
   const playerNames = players.map(p => p.name);
   
   // Check if current user is mentioned
@@ -74,36 +74,91 @@ function ChatMessageContent({ text, players, currentUserName }: { text: string; 
     return match;
   });
 
+  // For reactions, wrap each character in a span for sparkle effect
+  const renderReactionText = (text: string) => {
+    // Split text into parts: emoji, reaction text, and any other content
+    const parts: Array<{ type: 'emoji' | 'text' | 'space'; content: string; index: number }> = [];
+    let currentIndex = 0;
+    
+    // Extract emoji (simple check for emoji at start)
+    const emojiRegex = /^[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u;
+    if (text.match(emojiRegex)) {
+      const emojiMatch = text.match(/^[\s\S]*?[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}][\s\S]*?/u);
+      if (emojiMatch) {
+        const emojiEnd = emojiMatch[0].length;
+        parts.push({ type: 'emoji', content: text.slice(0, emojiEnd), index: currentIndex });
+        currentIndex = emojiEnd;
+      }
+    }
+    
+    // Process remaining text character by character
+    const remainingText = text.slice(currentIndex);
+    const chars = Array.from(remainingText);
+    chars.forEach((char, i) => {
+      if (char === ' ') {
+        parts.push({ type: 'space', content: ' ', index: currentIndex + i });
+      } else {
+        parts.push({ type: 'text', content: char, index: currentIndex + i });
+      }
+    });
+    
+    return (
+      <span className="reaction-sparkle-wrapper">
+        {parts.map((part, idx) => {
+          if (part.type === 'space') {
+            return <span key={idx}>&nbsp;</span>;
+          }
+          if (part.type === 'emoji') {
+            return <span key={idx} className="reaction-emoji-display">{part.content}</span>;
+          }
+          return (
+            <span
+              key={idx}
+              className="reaction-sparkle-char"
+              style={{ '--i': idx } as React.CSSProperties}
+            >
+              {part.content}
+            </span>
+          );
+        })}
+      </span>
+    );
+  };
+
   return (
-    <span className={`chat-text ${isMentioned ? 'chat-mentioned' : ''}`}>
-      <ReactMarkdown
-        components={{
-          p: ({ node, ...props }) => <span {...props} />,
-          strong: ({ node, ...props }) => <strong {...props} />,
-          em: ({ node, ...props }) => <em {...props} />,
-          code: ({ node, inline, ...props }) => inline ? (
-            <code {...props} />
-          ) : null,
-          a: ({ node, ...props }: any) => {
-            if (props.href?.startsWith('mention:')) {
-              const mentionedUser = props.href.replace('mention:', '');
+    <span className={`chat-text ${isMentioned ? 'chat-mentioned' : ''} ${isReaction ? 'chat-reaction-text' : ''}`}>
+      {isReaction ? (
+        renderReactionText(text)
+      ) : (
+        <ReactMarkdown
+          components={{
+            p: ({ node, ...props }) => <span {...props} />,
+            strong: ({ node, ...props }) => <strong {...props} />,
+            em: ({ node, ...props }) => <em {...props} />,
+            code: ({ node, inline, ...props }) => inline ? (
+              <code {...props} />
+            ) : null,
+            a: ({ node, ...props }: any) => {
+              if (props.href?.startsWith('mention:')) {
+                const mentionedUser = props.href.replace('mention:', '');
+                return (
+                  <span
+                    className="chat-mention"
+                    style={playerStyle(mentionedUser)}
+                  >
+                    {props.children}
+                  </span>
+                );
+              }
               return (
-                <span
-                  className="chat-mention"
-                  style={playerStyle(mentionedUser)}
-                >
-                  {props.children}
-                </span>
+                <a {...props} target="_blank" rel="noopener noreferrer" />
               );
-            }
-            return (
-              <a {...props} target="_blank" rel="noopener noreferrer" />
-            );
-          },
-        }}
-      >
-        {processedText}
-      </ReactMarkdown>
+            },
+          }}
+        >
+          {processedText}
+        </ReactMarkdown>
+      )}
     </span>
   );
 }
@@ -222,13 +277,34 @@ export default function ChatPanel({
       <div className="chat-messages" ref={messagesContainerRef}>
         {!messages || messages.length === 0 ? (
           <p className="subtle">No messages yet. Start the conversation!</p>
-        ) : (
-          messages.map((message) => {
+        ) : (() => {
+          // Find all reaction messages and get the most recent 3
+          const reactionMessages = new Set<string>();
+          const reactionIndices: number[] = [];
+          
+          messages.forEach((message, index) => {
+            const reactionMatch = PRESET_REACTIONS.find(r => 
+              message.text.includes(r.emoji) && message.text.includes(r.text)
+            );
+            if (reactionMatch) {
+              reactionIndices.push(index);
+            }
+          });
+          
+          // Get the last 3 reaction indices (most recent)
+          const recentReactionIndices = reactionIndices.slice(-3);
+          recentReactionIndices.forEach(index => {
+            reactionMessages.add(messages[index].id);
+          });
+          
+          return messages.map((message, index) => {
             // Check if message contains a reaction
             const reactionMatch = PRESET_REACTIONS.find(r => 
               message.text.includes(r.emoji) && message.text.includes(r.text)
             );
             const reactionClass = reactionMatch ? `reaction-${reactionMatch.animation}` : '';
+            // Only apply sparkle effect to most recent 3 reactions
+            const isReaction = !!reactionMatch && reactionMessages.has(message.id);
             
             return (
               <div key={message.id} className={`chat-message ${reactionClass}`}>
@@ -242,12 +318,13 @@ export default function ChatPanel({
                   text={message.text}
                   players={players}
                   currentUserName={userName}
+                  isReaction={isReaction}
                 />
                 <span className="chat-time">{formatTime(message.timestamp)}</span>
               </div>
             );
-          })
-        )}
+          });
+        })()}
         <div ref={messagesEndRef} />
       </div>
       {error && <div className="chat-error">{error}</div>}
