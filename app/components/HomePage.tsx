@@ -23,7 +23,7 @@ import {
   useLocalStorageState,
   useSessionStorageState,
 } from "../hooks/useStoredState";
-import { randomId, shuffleArray, weightedPick } from "../lib/utils";
+import { randomId, shuffleArray, weightedPick, playNotificationSound } from "../lib/utils";
 import type {
   DraftItem,
   NoRepeatMode,
@@ -154,6 +154,7 @@ export default function Home() {
     Record<string, { wins: number; losses: number }>
   >(`wheel:playerStats:${room}`, {});
   const [bulletinBoard, setBulletinBoard] = useState<string | null>(null);
+  const previousBulletinBoardRef = useRef<string | null>(null);
   const [chatMessages, setChatMessages] = useState<
     Array<{ id: string; userName: string; text: string; timestamp: number }>
   >([]);
@@ -539,6 +540,7 @@ export default function Home() {
             setChatMessages(chatMessages);
           }
           if (syncBulletinBoard !== undefined) {
+            previousBulletinBoardRef.current = syncBulletinBoard;
             setBulletinBoard(syncBulletinBoard);
           }
           if (clientId) {
@@ -547,7 +549,13 @@ export default function Home() {
         }
         if (message?.type === "bulletin_board_update") {
           const { content } = message.payload || {};
-          setBulletinBoard(content || null);
+          const newContent = content || null;
+          // Only play sound if content actually changed (not just initial sync)
+          if (previousBulletinBoardRef.current !== newContent && previousBulletinBoardRef.current !== null) {
+            playNotificationSound();
+          }
+          previousBulletinBoardRef.current = newContent;
+          setBulletinBoard(newContent);
         }
         if (message?.type === "bulletin_board_result") {
           const { success, message: resultMessage } = message.payload || {};
