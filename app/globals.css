@@ -1715,3 +1715,116 @@ button.pending-confirm {
     grid-template-columns: 1fr;
   }
 }
+
+/* Bulletin Board Styles */
+.bulletin-editor {
+  font-family: "Geist Mono", "Courier New", monospace;
+}
+
+.bulletin-display {
+  margin-bottom: 24px;
+}
+
+.bulletin-content {
+  margin-top: 12px;
+  padding: 16px;
+  background: var(--panel-strong);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  line-height: 1.6;
+}
+
+.bulletin-content p {
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.bulletin-content p:first-child {
+  margin-top: 0;
+}
+
+.bulletin-content p:last-child {
+  margin-bottom: 0;
+}
+
+.bulletin-content strong {
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+
+.bulletin-content em {
+  font-style: italic;
+  opacity: 0.9;
+}
+
+.bulletin-content ul,
+.bulletin-content ol {
+  margin-top: 8px;
+  margin-bottom: 8px;
+  padding-left: 24px;
+}
+
+.bulletin-content li {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.bulletin-content h1,
+.bulletin-content h2,
+.bulletin-content h3 {
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+.bulletin-content h1 {
+  font-size: 1.5rem;
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.bulletin-content h2 {
+  font-size: 1.3rem;
+}
+
+.bulletin-content h3 {
+  font-size: 1.1rem;
+}
+
+.bulletin-content a {
+  color: var(--accent);
+  text-decoration: underline;
+  transition: color 0.2s;
+}
+
+.bulletin-content a:hover {
+  color: var(--accent-strong);
+}
+
+.bulletin-content code {
+  font-family: "Geist Mono", "Courier New", monospace;
+  font-size: 0.9em;
+}
+
+.bulletin-content pre {
+  overflow-x: auto;
+  margin-top: 12px;
+  margin-bottom: 12px;
+}
+
+.bulletin-content blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 16px;
+  margin-left: 0;
+  margin-top: 12px;
+  margin-bottom: 12px;
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.bulletin-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}

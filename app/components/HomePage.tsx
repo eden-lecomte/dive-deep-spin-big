@@ -10,6 +10,8 @@ import AdminAccessPanel from "./panels/AdminAccessPanel";
 import AdminControlsPanel from "./panels/AdminControlsPanel";
 import PlayerManagementPanel from "./panels/PlayerManagementPanel";
 import ChatPanel from "./panels/ChatPanel";
+import BulletinBoardPanel from "./panels/BulletinBoardPanel";
+import BulletinBoardDisplay from "./panels/BulletinBoardDisplay";
 import VictoryModal from "./VictoryModal";
 import {
   COLORS,
@@ -151,6 +153,7 @@ export default function Home() {
   const [playerStats, setPlayerStats] = useLocalStorageState<
     Record<string, { wins: number; losses: number }>
   >(`wheel:playerStats:${room}`, {});
+  const [bulletinBoard, setBulletinBoard] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<
     Array<{ id: string; userName: string; text: string; timestamp: number }>
   >([]);
@@ -471,6 +474,7 @@ export default function Home() {
             items,
             settings,
             chatMessages,
+            bulletinBoard: syncBulletinBoard,
             clientId,
           } = message.payload || {};
           if (roomVotes) {
@@ -534,8 +538,21 @@ export default function Home() {
           if (Array.isArray(chatMessages)) {
             setChatMessages(chatMessages);
           }
+          if (syncBulletinBoard !== undefined) {
+            setBulletinBoard(syncBulletinBoard);
+          }
           if (clientId) {
             clientIdRef.current = clientId;
+          }
+        }
+        if (message?.type === "bulletin_board_update") {
+          const { content } = message.payload || {};
+          setBulletinBoard(content || null);
+        }
+        if (message?.type === "bulletin_board_result") {
+          const { success, message: resultMessage } = message.payload || {};
+          if (resultMessage) {
+            setStatusMessage(resultMessage);
           }
         }
         if (message?.type === "chat_message") {
@@ -936,6 +953,21 @@ export default function Home() {
     socketReady,
     votingEnabled,
   ]);
+
+  const updateBulletinBoard = useCallback(
+    (content: string | null) => {
+      if (!socketReady || !adminUnlocked) return;
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "bulletin_board_update",
+            payload: { content },
+          })
+        );
+      }
+    },
+    [adminUnlocked, socketReady]
+  );
 
   useEffect(() => {
     broadcastSettings();
@@ -2148,6 +2180,9 @@ export default function Home() {
 
             {!viewParam && (
               <section className="panel">
+                {bulletinBoard && !adminUnlocked && (
+                  <BulletinBoardDisplay content={bulletinBoard} />
+                )}
                 <GamesListPanel
                   items={items}
                   hiddenLabels={false}
@@ -2195,6 +2230,17 @@ export default function Home() {
                 onAwardWin={awardPlayerWin}
                 onAwardLoss={awardPlayerLoss}
                 onResetStats={resetPlayerStats}
+              />
+            </div>
+          )}
+
+          {!viewParam && adminUnlocked && (
+            <div className="edit-panel-fullwidth">
+              <BulletinBoardPanel
+                content={bulletinBoard}
+                adminUnlocked={adminUnlocked}
+                socketReady={socketReady}
+                onUpdate={updateBulletinBoard}
               />
             </div>
           )}
