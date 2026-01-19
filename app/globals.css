@@ -1472,6 +1472,118 @@ button.pending-confirm {
   line-height: 1;
 }
 
+/* Chat Panel Styles */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 400px;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 200px;
+  max-height: 300px;
+  padding: 8px;
+  background: var(--panel-strong);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.chat-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 0.9rem;
+}
+
+.chat-username {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-weight: 600;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.chat-text {
+  flex: 1;
+  color: var(--text);
+  word-wrap: break-word;
+  line-height: 1.4;
+}
+
+.chat-time {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  padding-top: 2px;
+}
+
+.chat-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  padding: 8px;
+  background: rgba(255, 59, 48, 0.1);
+  border-radius: 8px;
+  border: 1px solid var(--danger);
+}
+
+.chat-input-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chat-input {
+  flex: 1;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chat-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-send-button {
+  padding: 10px 20px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chat-send-button:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.chat-send-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .help-list {
   list-style: none;
   display: grid;
