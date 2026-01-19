@@ -9,6 +9,7 @@ import EditPanel from "./panels/EditPanel";
 import AdminAccessPanel from "./panels/AdminAccessPanel";
 import AdminControlsPanel from "./panels/AdminControlsPanel";
 import PlayerManagementPanel from "./panels/PlayerManagementPanel";
+import ChatPanel from "./panels/ChatPanel";
 import VictoryModal from "./VictoryModal";
 import {
   COLORS,
@@ -88,6 +89,10 @@ export default function Home() {
   const [presentationModeState, setPresentationMode] =
     useLocalStorageState<boolean>(`wheel:presentation:${room}`, false);
   const presentationMode = presentationModeState ?? false;
+  const [chatEnabled, setChatEnabled] = useLocalStorageState<boolean>(
+    `wheel:chat:${room}`,
+    true
+  );
   const [userName, setUserName] = useLocalStorageState<string>(
     `wheel:username`,
     ""
@@ -146,6 +151,9 @@ export default function Home() {
   const [playerStats, setPlayerStats] = useLocalStorageState<
     Record<string, { wins: number; losses: number }>
   >(`wheel:playerStats:${room}`, {});
+  const [chatMessages, setChatMessages] = useState<
+    Array<{ id: string; userName: string; text: string; timestamp: number }>
+  >([]);
   const lastItemsSourceRef = useRef<"local" | "server" | null>(null);
   const itemsRef = useRef<WheelItem[]>(items);
   const suppressSettingsBroadcastRef = useRef(false);
@@ -462,6 +470,7 @@ export default function Home() {
             players,
             items,
             settings,
+            chatMessages,
             clientId,
           } = message.payload || {};
           if (roomVotes) {
@@ -504,6 +513,7 @@ export default function Home() {
               votingEnabled,
               noRepeatMode,
               presentationMode,
+              chatEnabled,
             } = settings;
             if (typeof mysteryEnabled === "boolean") {
               setMysteryEnabled(mysteryEnabled);
@@ -517,9 +527,37 @@ export default function Home() {
             if (typeof presentationMode === "boolean") {
               setPresentationMode(presentationMode);
             }
+            if (typeof chatEnabled === "boolean") {
+              setChatEnabled(chatEnabled);
+            }
+          }
+          if (Array.isArray(chatMessages)) {
+            setChatMessages(chatMessages);
           }
           if (clientId) {
             clientIdRef.current = clientId;
+          }
+        }
+        if (message?.type === "chat_message") {
+          const chatMessage = message.payload;
+          if (chatMessage && chatMessage.id && chatMessage.userName && chatMessage.text && typeof chatMessage.timestamp === "number") {
+            setChatMessages((prev) => {
+              // Check if message already exists to prevent duplicates
+              const exists = prev.some((msg) => msg.id === chatMessage.id);
+              if (exists) {
+                return prev;
+              }
+              return [...prev, chatMessage];
+            });
+          }
+        }
+        if (message?.type === "chat_error") {
+          const { message: errorMsg } = message.payload || {};
+          if (errorMsg) {
+            setToastMessages((prev) => [
+              ...prev,
+              { id: `chat-error-${Date.now()}`, message: errorMsg, type: "error" },
+            ]);
           }
         }
         if (message?.type === "roomVotes") {
@@ -894,6 +932,7 @@ export default function Home() {
     mysteryEnabled,
     noRepeatMode,
     presentationMode,
+    chatEnabled,
     socketReady,
     votingEnabled,
   ]);
@@ -907,6 +946,7 @@ export default function Home() {
     mysteryEnabled,
     noRepeatMode,
     presentationMode,
+    chatEnabled,
     socketReady,
     votingEnabled,
   ]);
@@ -1178,6 +1218,17 @@ export default function Home() {
     },
     [pushItemsUpdate, setItems]
   );
+
+  const handleSendChatMessage = useCallback((text: string, userName: string) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "chat_message",
+          payload: { text, userName },
+        })
+      );
+    }
+  }, []);
 
   const handleImportError = useCallback((message: string) => {
     setStatusMessage(message);
@@ -2153,8 +2204,10 @@ export default function Home() {
               <AdminControlsPanel
                 mysteryEnabled={mysteryEnabled}
                 noRepeatMode={noRepeatMode}
+                chatEnabled={chatEnabled}
                 onMysteryToggle={setMysteryEnabled}
                 onNoRepeatModeChange={setNoRepeatMode}
+                onChatToggle={setChatEnabled}
                 onResetSessionHistory={() => setUsedItemIds([])}
                 onResetVotes={resetVotes}
                 onResetHistory={resetHistory}
@@ -2163,6 +2216,17 @@ export default function Home() {
                 onResetAdmin={resetAdmin}
               />
             </div>
+          )}
+
+          {!viewParam && chatEnabled && (
+            <section className="panel">
+              <ChatPanel
+                socketReady={socketReady}
+                userName={userName}
+                onSendMessage={handleSendChatMessage}
+                messages={chatMessages}
+              />
+            </section>
           )}
         </main>
       )}

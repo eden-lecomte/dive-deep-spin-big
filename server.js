@@ -21,6 +21,8 @@ const settingsByRoom = new Map();
 const bulletinBoardByRoom = new Map(); // Store bulletin board content per room
 const deviceConnectionsByRoom = new Map(); // Track device IDs per room
 const roomLastActivity = new Map(); // Track last activity timestamp for each room
+const chatMessagesByRoom = new Map(); // Track chat messages per room (max 200)
+const chatRateLimitByUser = new Map(); // Track message timestamps per user for rate limiting
 let clientCounter = 0;
 
 function getRoom(req) {
@@ -89,6 +91,36 @@ function getPresence(room) {
     cleanupStaleRooms();
   }
   return presenceByRoom.get(room);
+}
+
+function getChatMessages(room) {
+  if (!chatMessagesByRoom.has(room)) {
+    chatMessagesByRoom.set(room, []);
+  }
+  return chatMessagesByRoom.get(room);
+}
+
+function checkChatRateLimit(clientId, userName) {
+  const key = `${clientId}:${userName}`;
+  const now = Date.now();
+  const oneSecondAgo = now - 1000;
+  
+  if (!chatRateLimitByUser.has(key)) {
+    chatRateLimitByUser.set(key, []);
+  }
+  
+  const timestamps = chatRateLimitByUser.get(key);
+  // Remove timestamps older than 1 second
+  const recentTimestamps = timestamps.filter(ts => ts > oneSecondAgo);
+  
+  if (recentTimestamps.length >= 5) {
+    return false; // Rate limit exceeded
+  }
+  
+  // Add current timestamp
+  recentTimestamps.push(now);
+  chatRateLimitByUser.set(key, recentTimestamps);
+  return true; // Allowed
 }
 
 // Update room activity timestamp
@@ -162,6 +194,7 @@ function cleanupStaleRooms() {
       bulletinBoardByRoom.delete(room);
       deviceConnectionsByRoom.delete(room);
       roomLastActivity.delete(room);
+      chatMessagesByRoom.delete(room);
     }
   
   if (roomsToCleanup.length > 0) {
@@ -287,6 +320,7 @@ app.prepare().then(() => {
     const items = itemsByRoom.get(room) || null;
     const settings = settingsByRoom.get(room) || null;
     const bulletinBoard = bulletinBoardByRoom.get(room) || null;
+    const chatMessages = getChatMessages(room);
 
     if (hasExistingConnection) {
       // Send a blocking message that requires user confirmation
@@ -310,6 +344,7 @@ app.prepare().then(() => {
         items,
         settings,
         bulletinBoard,
+        chatMessages: getChatMessages(room),
       };
     } else {
       // Normal connection flow - send sync immediately
@@ -325,6 +360,7 @@ app.prepare().then(() => {
             items,
             settings,
             bulletinBoard,
+            chatMessages,
             clientId: ws.clientId,
           },
         })
@@ -391,6 +427,7 @@ app.prepare().then(() => {
                   items: pendingData.items,
                   settings: pendingData.settings,
                   bulletinBoard: pendingData.bulletinBoard,
+                  chatMessages: getChatMessages(room),
                   clientId: ws.clientId,
                 },
               })
@@ -955,6 +992,96 @@ app.prepare().then(() => {
       if (message?.type === "ping") {
         updateRoomActivity(room);
         ws.send(JSON.stringify({ type: "pong" }));
+        return;
+      }
+
+      if (message?.type === "chat_message") {
+        updateRoomActivity(room);
+        
+        // Check if chat is enabled for this room (default to true if not set)
+        const settings = settingsByRoom.get(room);
+        if (settings && settings.chatEnabled === false) {
+          ws.send(
+            JSON.stringify({
+              type: "chat_error",
+              payload: { message: "Chat is disabled for this room" },
+            })
+          );
+          return;
+        }
+        
+        const { text, userName } = message.payload || {};
+        if (!text || !userName || typeof text !== "string" || typeof userName !== "string") {
+          ws.send(
+            JSON.stringify({
+              type: "chat_error",
+              payload: { message: "Invalid message format" },
+            })
+          );
+          return;
+        }
+
+        // Trim and validate message
+        const trimmedText = text.trim();
+        if (trimmedText.length === 0 || trimmedText.length > 500) {
+          ws.send(
+            JSON.stringify({
+              type: "chat_error",
+              payload: { message: "Message must be between 1 and 500 characters" },
+            })
+          );
+          return;
+        }
+
+        // Check rate limit
+        if (!checkChatRateLimit(ws.clientId, userName)) {
+          ws.send(
+            JSON.stringify({
+              type: "chat_error",
+              payload: { message: "Rate limit exceeded. Maximum 5 messages per second." },
+            })
+          );
+          return;
+        }
+
+        // Get player name from presence to ensure it matches
+        const presence = getPresence(room);
+        const playerData = presence.get(ws.clientId);
+        const playerName = typeof playerData === "string" ? playerData : playerData?.name;
+        
+        if (!playerName) {
+          ws.send(
+            JSON.stringify({
+              type: "chat_error",
+              payload: { message: "You must set your name before sending messages" },
+            })
+          );
+          return;
+        }
+
+        // Create chat message using server-authoritative playerName
+        const chatMessage = {
+          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          userName: playerName,
+          text: trimmedText,
+          timestamp: Date.now(),
+        };
+
+        // Add to messages array and enforce max limit
+        const messages = getChatMessages(room);
+        messages.push(chatMessage);
+        
+        // Keep only last 200 messages
+        if (messages.length > 200) {
+          messages.shift();
+        }
+
+        // Broadcast to all clients in room
+        broadcast(room, {
+          type: "chat_message",
+          payload: chatMessage,
+        });
+        return;
       }
     });
 

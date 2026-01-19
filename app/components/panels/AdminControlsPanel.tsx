@@ -3,8 +3,10 @@ import type { NoRepeatMode } from "../../lib/types";
 type AdminControlsPanelProps = {
   mysteryEnabled: boolean;
   noRepeatMode: NoRepeatMode;
+  chatEnabled: boolean;
   onMysteryToggle: (value: boolean) => void;
   onNoRepeatModeChange: (value: NoRepeatMode) => void;
+  onChatToggle: (value: boolean) => void;
   onResetSessionHistory: () => void;
   onResetVotes: () => void;
   onResetHistory: () => void;
@@ -16,8 +18,10 @@ type AdminControlsPanelProps = {
 export default function AdminControlsPanel({
   mysteryEnabled,
   noRepeatMode,
+  chatEnabled,
   onMysteryToggle,
   onNoRepeatModeChange,
+  onChatToggle,
   onResetSessionHistory,
   onResetVotes,
   onResetHistory,
@@ -36,6 +40,14 @@ export default function AdminControlsPanel({
             onChange={(event) => onMysteryToggle(event.target.checked)}
           />
           Mystery mode
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={chatEnabled}
+            onChange={(event) => onChatToggle(event.target.checked)}
+          />
+          Chat enabled
         </label>
         <label>
           No-repeat mode
