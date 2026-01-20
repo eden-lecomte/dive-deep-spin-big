@@ -773,6 +773,18 @@ export default function Home() {
             setMultipleConnectionsPrompt({ message: promptMessage });
           }
         }
+        if (message?.type === "room_status") {
+          const { room: roomToCheck, hasActivePlayers } = message.payload || {};
+          if (roomToCheck && checkingRoom) {
+            const currentRoomInput = roomInput.trim().toUpperCase();
+            if (roomToCheck === currentRoomInput) {
+              const action = pendingRoomActionRef.current;
+              const isCreating = action === 'create';
+              handleRoomCheckResult(roomToCheck, hasActivePlayers || false, isCreating);
+              pendingRoomActionRef.current = null;
+            }
+          }
+        }
         if (message?.type === "items_update") {
           const { items, sourceClientId } = message.payload || {};
           if (!Array.isArray(items)) return;
@@ -1746,6 +1758,8 @@ export default function Home() {
     hasActivePlayers: boolean;
   } | null>(null);
   const [checkingRecentRoom, setCheckingRecentRoom] = useState(false);
+  const [roomExists, setRoomExists] = useState<boolean | null>(null);
+  const [checkingRoom, setCheckingRoom] = useState(false);
 
   // Handle reconnecting state when we have a room param
   // Only show reconnect screen on initial page load, not on subsequent WebSocket disconnects
@@ -1915,31 +1929,88 @@ export default function Home() {
   function createRoomCode() {
     const name = playerNameInput.trim();
     if (!name) return;
-    // Set name first
-    setUserName(name);
-    // Then create room
-    const code = Math.random().toString(36).slice(2, 8).toUpperCase();
-    // Store last room for auto-reconnect
-    if (typeof window !== "undefined") {
-      localStorage.setItem("wheel:lastRoom", code);
+    const code = roomInput.trim().toUpperCase();
+    if (!code) {
+      setStatusMessage("Please enter a room code");
+      return;
     }
-    applyQueryParams({ room: code });
+    
+    // Check if room already exists
+    setCheckingRoom(true);
+    pendingRoomActionRef.current = 'create';
+    setStatusMessage(null);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "check_room_status",
+          payload: { roomToCheck: code },
+        })
+      );
+    } else {
+      // If not connected, try to connect first
+      setStatusMessage("Connecting to server...");
+      // The room check will happen after connection
+    }
   }
 
   function joinRoom() {
     const name = playerNameInput.trim();
     if (!name) return;
-    const code = roomInput.trim();
-    if (!code) return;
-    // Set name first
-    setUserName(name);
-    // Store last room for auto-reconnect
-    if (typeof window !== "undefined") {
-      localStorage.setItem("wheel:lastRoom", code);
+    const code = roomInput.trim().toUpperCase();
+    if (!code) {
+      setStatusMessage("Please enter a room code");
+      return;
     }
-    // Then join room
-    applyQueryParams({ room: code });
+    
+    // Check if room exists first
+    setCheckingRoom(true);
+    pendingRoomActionRef.current = 'join';
+    setStatusMessage(null);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "check_room_status",
+          payload: { roomToCheck: code },
+        })
+      );
+    } else {
+      setStatusMessage("Connecting to server...");
+    }
   }
+  
+  const handleRoomCheckResult = useCallback((roomCode: string, hasActivePlayers: boolean, isCreating: boolean) => {
+    setCheckingRoom(false);
+    const name = playerNameInput.trim();
+    if (!name) return;
+    
+    if (isCreating) {
+      // Creating room - check if it already exists
+      if (hasActivePlayers) {
+        setStatusMessage(`Room "${roomCode}" already exists. Please choose a different code or use "Join room" instead.`);
+        setRoomExists(true);
+        return;
+      }
+      // Room doesn't exist, create it
+      setUserName(name);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("wheel:lastRoom", roomCode);
+      }
+      applyQueryParams({ room: roomCode });
+    } else {
+      // Joining room - check if it exists
+      if (!hasActivePlayers) {
+        setStatusMessage(`Room "${roomCode}" does not exist. Please create it first using "Create new room".`);
+        setRoomExists(false);
+        return;
+      }
+      // Room exists, join it
+      setUserName(name);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("wheel:lastRoom", roomCode);
+      }
+      applyQueryParams({ room: roomCode });
+    }
+  }, [playerNameInput, applyQueryParams]);
 
   function leaveRoom() {
     // Close WebSocket connection
@@ -2063,29 +2134,45 @@ export default function Home() {
               <input
                 type="text"
                 value={roomInput}
-                onChange={(event) => setRoomInput(event.target.value)}
+                onChange={(event) => {
+                  setRoomInput(event.target.value);
+                  setRoomExists(null); // Reset room existence check when input changes
+                  setStatusMessage(null); // Clear error message
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
-                    joinRoom();
+                    if (roomInput.trim() && playerNameInput.trim()) {
+                      joinRoom();
+                    }
                   }
                 }}
                 placeholder="Room code"
+                style={{
+                  textTransform: "uppercase",
+                }}
               />
               <button
                 className="primary"
                 onClick={joinRoom}
-                disabled={!roomInput.trim() || !playerNameInput.trim()}
+                disabled={!roomInput.trim() || !playerNameInput.trim() || checkingRoom || roomExists === false}
+                title={roomExists === false ? "Room does not exist. Use 'Create new room' instead." : ""}
               >
-                Join room
+                {checkingRoom ? "Checking..." : "Join room"}
               </button>
             </div>
             <button
               className="ghost"
               onClick={createRoomCode}
-              disabled={!playerNameInput.trim()}
+              disabled={!playerNameInput.trim() || !roomInput.trim() || checkingRoom}
+              title={roomExists === true ? "Room already exists. Use 'Join room' instead." : ""}
             >
-              Create new room
+              {checkingRoom ? "Checking..." : "Create new room"}
             </button>
+            {statusMessage && (
+              <p style={{ marginTop: "12px", color: "var(--danger)", fontSize: "0.9rem" }}>
+                {statusMessage}
+              </p>
+            )}
           </div>
           {recentRoom && recentRoom.hasActivePlayers && (
             <div
