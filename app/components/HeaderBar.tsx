@@ -17,6 +17,7 @@ type HeaderBarProps = {
   onLeaveRoom: () => void;
   onVotingToggle?: () => void;
   onPresentationToggle?: () => void;
+  timer: { endTime: number; duration: number } | null;
 };
 
 function hashString(value: string) {
@@ -52,6 +53,7 @@ export default function HeaderBar({
   onLeaveRoom,
   onVotingToggle,
   onPresentationToggle,
+  timer,
 }: HeaderBarProps) {
   const [pendingLeave, setPendingLeave] = useState(false);
 

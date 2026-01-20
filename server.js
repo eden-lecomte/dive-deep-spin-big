@@ -18,6 +18,7 @@ const adminByRoom = new Map();
 const presenceByRoom = new Map();
 const itemsByRoom = new Map();
 const settingsByRoom = new Map();
+const timerByRoom = new Map(); // { endTime: number, duration: number } | null
 const bulletinBoardByRoom = new Map(); // Store bulletin board content per room
 const deviceConnectionsByRoom = new Map(); // Track device IDs per room
 const roomLastActivity = new Map(); // Track last activity timestamp for each room
@@ -240,6 +241,21 @@ setInterval(() => {
   cleanupStaleRooms();
 }, 60 * 60 * 1000); // Run every hour
 
+// Set up periodic timer expiration check (run every second)
+setInterval(() => {
+  const now = Date.now();
+  for (const [room, timer] of timerByRoom.entries()) {
+    if (timer && timer.endTime <= now) {
+      // Timer expired - clear it and notify clients
+      timerByRoom.delete(room);
+      broadcast(room, {
+        type: "timer_expired",
+        payload: {},
+      });
+    }
+  }
+}, 1000); // Check every second
+
 // Run cleanup immediately on startup
 cleanupStaleRooms();
 
@@ -266,6 +282,17 @@ app.prepare().then(() => {
       wss.emit("connection", ws, req);
     });
   });
+
+  // Helper to check if client name matches admin name (for sync)
+  function isClientNameAdmin(ws, room) {
+    const admin = adminByRoom.get(room);
+    if (!admin || !admin.name) return false;
+    const presence = getPresence(room);
+    const clientName = presence.get(ws.clientId);
+    const clientNameStr = typeof clientName === 'string' ? clientName : clientName?.name;
+    if (!clientNameStr) return false;
+    return clientNameStr.trim().toLowerCase() === admin.name.trim().toLowerCase();
+  }
 
   wss.on("connection", (ws, req) => {
     const room = getRoom(req);
@@ -321,6 +348,19 @@ app.prepare().then(() => {
     const settings = settingsByRoom.get(room) || null;
     const bulletinBoard = bulletinBoardByRoom.get(room) || null;
     const chatMessages = getChatMessages(room);
+    const timerData = timerByRoom.get(room);
+    // Check if timer has expired
+    let timer = null;
+    if (timerData && timerData.endTime > Date.now()) {
+      timer = timerData;
+    } else if (timerData && timerData.endTime <= Date.now()) {
+      // Timer expired - clear it and switch to play view
+      timerByRoom.delete(room);
+      broadcast(room, {
+        type: "timer_expired",
+        payload: {},
+      });
+    }
     
     // Check if this client should be admin based on admin name matching presence
     // This helps restore admin status on reconnect
@@ -357,7 +397,7 @@ app.prepare().then(() => {
     } else {
       // Normal connection flow - send sync immediately
       // Check if this client should be recognized as admin (name matches admin name)
-      const clientIsAdmin = isClientNameAdmin(ws);
+      const clientIsAdmin = isClientNameAdmin(ws, room);
       if (clientIsAdmin && adminInfo) {
         // Client name matches admin, but don't auto-set isAdmin flag yet
         // They'll need to unlock with PIN, but we can indicate they're the admin
@@ -379,6 +419,7 @@ app.prepare().then(() => {
             chatMessages,
             clientId: ws.clientId,
             clientIsAdmin: clientIsAdmin, // Indicate if client name matches admin name
+            timer, // Include timer state
           },
         })
       );
@@ -628,16 +669,6 @@ app.prepare().then(() => {
         return false;
       }
       
-      // Helper to check if client name matches admin name (for sync)
-      function isClientNameAdmin(ws) {
-        const admin = adminByRoom.get(room);
-        if (!admin || !admin.name) return false;
-        const presence = getPresence(room);
-        const clientName = presence.get(ws.clientId);
-        const clientNameStr = typeof clientName === 'string' ? clientName : clientName?.name;
-        if (!clientNameStr) return false;
-        return clientNameStr.trim().toLowerCase() === admin.name.trim().toLowerCase();
-      }
 
       if (message?.type === "admin_unlock") {
         updateRoomActivity(room);
@@ -958,6 +989,68 @@ app.prepare().then(() => {
           type: "settings_update",
           payload: { settings },
         });
+        return;
+      }
+
+      if (message?.type === "timer_start") {
+        updateRoomActivity(room);
+        if (!ws.isAdmin) {
+          ws.send(
+            JSON.stringify({
+              type: "timer_result",
+              payload: { success: false, message: "Admin required." },
+            })
+          );
+          return;
+        }
+        const { duration } = message.payload || {}; // duration in minutes
+        if (!duration || typeof duration !== "number" || duration <= 0) {
+          ws.send(
+            JSON.stringify({
+              type: "timer_result",
+              payload: { success: false, message: "Invalid duration." },
+            })
+          );
+          return;
+        }
+        const endTime = Date.now() + duration * 60 * 1000;
+        const timer = { endTime, duration };
+        timerByRoom.set(room, timer);
+        broadcast(room, {
+          type: "timer_update",
+          payload: { timer },
+        });
+        ws.send(
+          JSON.stringify({
+            type: "timer_result",
+            payload: { success: true, message: "Timer started." },
+          })
+        );
+        return;
+      }
+
+      if (message?.type === "timer_stop") {
+        updateRoomActivity(room);
+        if (!ws.isAdmin) {
+          ws.send(
+            JSON.stringify({
+              type: "timer_result",
+              payload: { success: false, message: "Admin required." },
+            })
+          );
+          return;
+        }
+        timerByRoom.delete(room);
+        broadcast(room, {
+          type: "timer_update",
+          payload: { timer: null },
+        });
+        ws.send(
+          JSON.stringify({
+            type: "timer_result",
+            payload: { success: true, message: "Timer stopped." },
+          })
+        );
         return;
       }
 

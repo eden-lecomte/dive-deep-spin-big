@@ -85,6 +85,33 @@ select {
   gap: 12px;
 }
 
+.timer-banner {
+  width: 100%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: white;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-weight: 600;
+  font-size: 1.1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+  margin: 0 0 24px 0;
+}
+
+.timer-label {
+  opacity: 0.9;
+}
+
+.timer-countdown {
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05em;
+}
+
 .header {
   display: flex;
   justify-content: space-between;

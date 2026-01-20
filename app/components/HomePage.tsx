@@ -23,7 +23,7 @@ import {
   useLocalStorageState,
   useSessionStorageState,
 } from "../hooks/useStoredState";
-import { randomId, shuffleArray, weightedPick, playNotificationSound } from "../lib/utils";
+import { randomId, shuffleArray, weightedPick, playNotificationSound, playTimerStartSound, playTimerEndSound } from "../lib/utils";
 import type {
   DraftItem,
   NoRepeatMode,
@@ -84,6 +84,56 @@ export default function Home() {
     `wheel:voting:${room}`,
     false
   );
+  const [timer, setTimer] = useState<{ endTime: number; duration: number } | null>(null);
+  const previousTimerRef = useRef<{ endTime: number; duration: number } | null>(null);
+  
+  // Calculate time remaining for timer display
+  const timeRemaining = useMemo(() => {
+    if (!timer || timer.endTime <= Date.now()) return null;
+    return Math.max(0, timer.endTime - Date.now());
+  }, [timer]);
+  
+  // Play sound when timer starts or ends
+  useEffect(() => {
+    // Check if timer just started (was null, now has value)
+    if (timer && !previousTimerRef.current) {
+      playTimerStartSound();
+    }
+    // Check if timer just ended (had value, now null)
+    if (!timer && previousTimerRef.current) {
+      playTimerEndSound();
+    }
+    previousTimerRef.current = timer;
+  }, [timer]);
+  
+  // Update time remaining every second
+  const [displayTimeRemaining, setDisplayTimeRemaining] = useState<number | null>(null);
+  useEffect(() => {
+    if (timeRemaining === null) {
+      setDisplayTimeRemaining(null);
+      return;
+    }
+    setDisplayTimeRemaining(timeRemaining);
+    const interval = setInterval(() => {
+      const remaining = timer ? Math.max(0, timer.endTime - Date.now()) : null;
+      setDisplayTimeRemaining(remaining);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [timeRemaining, timer]);
+  
+  // Check timer expiration on client side
+  useEffect(() => {
+    if (!timer || timer.endTime > Date.now()) return;
+    
+    // Timer expired - switch to play view
+    setTimer(null);
+    if (viewParam) {
+      router.push(`?room=${encodeURIComponent(room)}`);
+    }
+    // Disable voting and enable presentation mode
+    setVotingEnabled(false);
+    setPresentationMode(true);
+  }, [timer, viewParam, room, router]);
   const [noRepeatMode, setNoRepeatMode] = useLocalStorageState<NoRepeatMode>(
     `wheel:norepeat:${room}`,
     "off"
@@ -492,6 +542,7 @@ export default function Home() {
             bulletinBoard: syncBulletinBoard,
             clientId,
             clientIsAdmin,
+            timer: syncTimer,
           } = message.payload || {};
           if (roomVotes) {
             setRoomVotes(roomVotes);
@@ -560,6 +611,9 @@ export default function Home() {
           }
           if (clientId) {
             clientIdRef.current = clientId;
+          }
+          if (syncTimer !== undefined) {
+            setTimer(syncTimer);
           }
           // If server indicates this client is the admin (by name match), auto-unlock if we have the PIN
           if (clientIsAdmin && adminPinSessionRef.current && !adminUnlockedRef.current && socketReady) {
@@ -672,6 +726,26 @@ export default function Home() {
                 })
               );
             }
+          }
+        }
+        if (message?.type === "timer_update") {
+          const { timer: updateTimer } = message.payload || {};
+          setTimer(updateTimer || null);
+        }
+        if (message?.type === "timer_expired") {
+          setTimer(null);
+          // Switch to play view (remove view param)
+          if (viewParam) {
+            router.push(`?room=${encodeURIComponent(room)}`);
+          }
+          // Disable voting and enable presentation mode
+          setVotingEnabled(false);
+          setPresentationMode(true);
+        }
+        if (message?.type === "timer_result") {
+          const { success, message: resultMessage } = message.payload || {};
+          if (resultMessage) {
+            setStatusMessage(resultMessage);
           }
         }
         if (message?.type === "presence") {
@@ -1181,6 +1255,32 @@ export default function Home() {
     setPresentationMode(false);
     setVotingEnabled(true);
   }, [setPresentationMode, setVotingEnabled]);
+
+  const handleTimerStart = useCallback((duration: number) => {
+    if (!socketReady || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      setStatusMessage("Not connected to server.");
+      return;
+    }
+    wsRef.current.send(
+      JSON.stringify({
+        type: "timer_start",
+        payload: { duration },
+      })
+    );
+  }, [socketReady]);
+
+  const handleTimerStop = useCallback(() => {
+    if (!socketReady || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      setStatusMessage("Not connected to server.");
+      return;
+    }
+    wsRef.current.send(
+      JSON.stringify({
+        type: "timer_stop",
+        payload: {},
+      })
+    );
+  }, [socketReady]);
 
   const handlePresentationToggle = useCallback(() => {
     // Update both states atomically - React will batch these updates
@@ -2075,6 +2175,13 @@ export default function Home() {
     )
   ) : null;
 
+  const formatTime = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div className={`page ${viewParam ? "view-mode" : ""}`}>
       <HeaderBar
@@ -2092,7 +2199,15 @@ export default function Home() {
         onLeaveRoom={leaveRoom}
         onVotingToggle={handleVotingToggle}
         onPresentationToggle={handlePresentationToggle}
+        timer={timer}
       />
+      
+      {displayTimeRemaining !== null && displayTimeRemaining > 0 && (
+        <div className="timer-banner">
+          <span className="timer-label">Voting ends in:</span>
+          <span className="timer-countdown">{formatTime(displayTimeRemaining)}</span>
+        </div>
+      )}
 
       {disconnectMessage && (
         <div className="disconnect-banner">
@@ -2310,6 +2425,10 @@ export default function Home() {
                 onResetItems={resetItems}
                 onResetResult={resetResult}
                 onResetAdmin={resetAdmin}
+                onTimerStart={handleTimerStart}
+                onTimerStop={handleTimerStop}
+                timer={timer}
+                socketReady={socketReady}
               />
             </div>
           )}

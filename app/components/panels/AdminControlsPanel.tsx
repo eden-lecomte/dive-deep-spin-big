@@ -13,6 +13,10 @@ type AdminControlsPanelProps = {
   onResetItems: () => void;
   onResetResult: () => void;
   onResetAdmin: () => void;
+  onTimerStart: (duration: number) => void;
+  onTimerStop: () => void;
+  timer: { endTime: number; duration: number } | null;
+  socketReady: boolean;
 };
 
 export default function AdminControlsPanel({
@@ -28,6 +32,10 @@ export default function AdminControlsPanel({
   onResetItems,
   onResetResult,
   onResetAdmin,
+  onTimerStart,
+  onTimerStop,
+  timer,
+  socketReady,
 }: AdminControlsPanelProps) {
   return (
     <div className="panel-block">
@@ -67,6 +75,47 @@ export default function AdminControlsPanel({
             Reset session history
           </button>
         )}
+      </div>
+      <div className="timer-controls" style={{ marginBottom: "16px", paddingTop: "16px", borderTop: "1px solid var(--border)" }}>
+        <label style={{ display: "block", marginBottom: "8px", fontWeight: 600 }}>
+          Voting Timer
+        </label>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          <button
+            className="ghost"
+            onClick={() => onTimerStart(15)}
+            disabled={!socketReady || (timer !== null && timer.endTime > Date.now())}
+            title="Start 15 minute timer"
+          >
+            15 min
+          </button>
+          <button
+            className="ghost"
+            onClick={() => onTimerStart(10)}
+            disabled={!socketReady || (timer !== null && timer.endTime > Date.now())}
+            title="Start 10 minute timer"
+          >
+            10 min
+          </button>
+          <button
+            className="ghost"
+            onClick={() => onTimerStart(5)}
+            disabled={!socketReady || (timer !== null && timer.endTime > Date.now())}
+            title="Start 5 minute timer"
+          >
+            5 min
+          </button>
+          {timer !== null && timer.endTime > Date.now() && (
+            <button
+              className="ghost danger"
+              onClick={onTimerStop}
+              disabled={!socketReady}
+              title="Stop timer early"
+            >
+              Stop Timer
+            </button>
+          )}
+        </div>
       </div>
       <div className="admin-actions">
         <button className="ghost" onClick={onResetVotes}>
