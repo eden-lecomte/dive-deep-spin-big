@@ -491,6 +491,7 @@ export default function Home() {
             chatMessages,
             bulletinBoard: syncBulletinBoard,
             clientId,
+            clientIsAdmin,
           } = message.payload || {};
           if (roomVotes) {
             setRoomVotes(roomVotes);
@@ -559,6 +560,18 @@ export default function Home() {
           }
           if (clientId) {
             clientIdRef.current = clientId;
+          }
+          // If server indicates this client is the admin (by name match), auto-unlock if we have the PIN
+          if (clientIsAdmin && adminPinSessionRef.current && !adminUnlockedRef.current && socketReady) {
+            // Auto-unlock admin status on reconnect
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              wsRef.current.send(
+                JSON.stringify({
+                  type: "admin_unlock",
+                  payload: { pin: adminPinSessionRef.current },
+                })
+              );
+            }
           }
         }
         if (message?.type === "bulletin_board_update") {
@@ -644,6 +657,21 @@ export default function Home() {
           }
           if (resultMessage) {
             setStatusMessage(resultMessage);
+          }
+        }
+        if (message?.type === "admin_status_update") {
+          const { clientIsAdmin } = message.payload || {};
+          // If server indicates this client is the admin (by name match), auto-unlock if we have the PIN
+          if (clientIsAdmin && adminPinSessionRef.current && !adminUnlockedRef.current && socketReady) {
+            // Auto-unlock admin status
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              wsRef.current.send(
+                JSON.stringify({
+                  type: "admin_unlock",
+                  payload: { pin: adminPinSessionRef.current },
+                })
+              );
+            }
           }
         }
         if (message?.type === "presence") {

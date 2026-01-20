@@ -321,6 +321,14 @@ app.prepare().then(() => {
     const settings = settingsByRoom.get(room) || null;
     const bulletinBoard = bulletinBoardByRoom.get(room) || null;
     const chatMessages = getChatMessages(room);
+    
+    // Check if this client should be admin based on admin name matching presence
+    // This helps restore admin status on reconnect
+    let isClientAdmin = false;
+    if (adminInfo && adminName) {
+      // We'll check this after presence is established, but we can't do it here
+      // because we don't have the client's name yet. We'll handle it in the sync message.
+    }
 
     if (hasExistingConnection) {
       // Send a blocking message that requires user confirmation
@@ -348,6 +356,14 @@ app.prepare().then(() => {
       };
     } else {
       // Normal connection flow - send sync immediately
+      // Check if this client should be recognized as admin (name matches admin name)
+      const clientIsAdmin = isClientNameAdmin(ws);
+      if (clientIsAdmin && adminInfo) {
+        // Client name matches admin, but don't auto-set isAdmin flag yet
+        // They'll need to unlock with PIN, but we can indicate they're the admin
+        ws.pendingAdminVerification = true;
+      }
+      
       ws.send(
         JSON.stringify({
           type: "sync",
@@ -362,6 +378,7 @@ app.prepare().then(() => {
             bulletinBoard,
             chatMessages,
             clientId: ws.clientId,
+            clientIsAdmin: clientIsAdmin, // Indicate if client name matches admin name
           },
         })
       );
@@ -567,6 +584,21 @@ app.prepare().then(() => {
         // Name is available, set it
         presence.set(ws.clientId, nameTrimmed);
         broadcastPresence(room);
+        
+        // After setting name, check if this client should be recognized as admin
+        const admin = adminByRoom.get(room);
+        if (admin && admin.name && nameTrimmed.toLowerCase() === admin.name.toLowerCase()) {
+          // Client name matches admin name - send update to client
+          ws.send(
+            JSON.stringify({
+              type: "admin_status_update",
+              payload: {
+                clientIsAdmin: true,
+                adminName: admin.name,
+              },
+            })
+          );
+        }
         return;
       }
 
@@ -576,12 +608,35 @@ app.prepare().then(() => {
         if (!admin) return false;
         // Check if this client has the admin flag set
         if (ws.isAdmin === true) return true;
+        // Check if client's name matches admin name (for reconnection scenarios)
+        const presence = getPresence(room);
+        const clientName = presence.get(ws.clientId);
+        const clientNameStr = typeof clientName === 'string' ? clientName : clientName?.name;
+        if (clientNameStr && admin.name && clientNameStr.trim().toLowerCase() === admin.name.trim().toLowerCase()) {
+          // Name matches admin, but still need PIN verification for security
+          // If pin is provided, verify it matches
+          if (providedPin && providedPin.trim() && admin.pin === providedPin.trim()) {
+            ws.isAdmin = true; // Set it for future checks
+            return true;
+          }
+        }
         // If pin is provided, verify it matches
         if (providedPin && providedPin.trim() && admin.pin === providedPin.trim()) {
           ws.isAdmin = true; // Set it for future checks
           return true;
         }
         return false;
+      }
+      
+      // Helper to check if client name matches admin name (for sync)
+      function isClientNameAdmin(ws) {
+        const admin = adminByRoom.get(room);
+        if (!admin || !admin.name) return false;
+        const presence = getPresence(room);
+        const clientName = presence.get(ws.clientId);
+        const clientNameStr = typeof clientName === 'string' ? clientName : clientName?.name;
+        if (!clientNameStr) return false;
+        return clientNameStr.trim().toLowerCase() === admin.name.trim().toLowerCase();
       }
 
       if (message?.type === "admin_unlock") {
@@ -597,7 +652,8 @@ app.prepare().then(() => {
           );
           return;
         }
-        if (!pin || admin.pin !== pin) {
+        // Verify PIN matches
+        if (!pin || admin.pin !== pin.trim()) {
           ws.send(
             JSON.stringify({
               type: "admin_result",
@@ -606,7 +662,22 @@ app.prepare().then(() => {
           );
           return;
         }
+        // Additional check: verify client name matches admin name (for security)
+        const presence = getPresence(room);
+        const clientName = presence.get(ws.clientId);
+        const clientNameStr = typeof clientName === 'string' ? clientName : clientName?.name;
+        if (clientNameStr && admin.name && clientNameStr.trim().toLowerCase() !== admin.name.trim().toLowerCase()) {
+          ws.send(
+            JSON.stringify({
+              type: "admin_result",
+              payload: { success: false, message: "Name does not match admin name." },
+            })
+          );
+          return;
+        }
+        // PIN is correct and name matches (or no name set yet), grant admin access
         ws.isAdmin = true;
+        delete ws.pendingAdminVerification;
         ws.send(
           JSON.stringify({
             type: "admin_result",
