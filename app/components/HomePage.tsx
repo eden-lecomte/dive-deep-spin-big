@@ -220,14 +220,28 @@ export default function Home() {
     }));
   }, [items, voteTotals]);
 
+  // Determine which items are excluded based on no-repeat mode
+  const excludedItemIds = useMemo(() => {
+    const excluded = new Set<string>();
+    if (noRepeatMode === "consecutive" && landedItemId) {
+      excluded.add(landedItemId);
+    }
+    if (noRepeatMode === "session") {
+      usedItemIds.forEach((id) => excluded.add(id));
+    }
+    return excluded;
+  }, [noRepeatMode, landedItemId, usedItemIds]);
+
   const segments = useMemo<WheelSegment[]>(() => {
-    if (!weightedItems.length) return [];
-    const totalWeight = weightedItems.reduce(
+    // Filter out excluded items from the wheel
+    const availableItems = weightedItems.filter((item) => !excludedItemIds.has(item.id));
+    if (!availableItems.length) return [];
+    const totalWeight = availableItems.reduce(
       (sum, item) => sum + Math.max(0.1, item.weight || 0),
       0
     );
     let current = 0;
-    return weightedItems.map((item, index) => {
+    return availableItems.map((item, index) => {
       const slice = (Math.max(0.1, item.weight || 0) / totalWeight) * 360;
       const start = current;
       const end = current + slice;
@@ -240,7 +254,7 @@ export default function Home() {
         color: COLORS[index % COLORS.length],
       };
     });
-  }, [weightedItems]);
+  }, [weightedItems, excludedItemIds]);
 
   const gradient = useMemo(() => {
     if (!segments.length) return "conic-gradient(#2b2d31 0deg 360deg)";

@@ -93,12 +93,21 @@ export default function GamesListPanel({
           const percentage = totalOfAllWeights > 0 
             ? (totalWeight / totalOfAllWeights) * 100 
             : 0;
+          const isIneligible = ineligibleItemIds.has(item.id);
           
           return (
-            <div key={item.id} className="game-vote-item">
+            <div 
+              key={item.id} 
+              className={`game-vote-item ${isIneligible ? 'game-vote-item-disabled' : ''}`}
+            >
               <div className="game-vote-header">
-                <span className="game-name">
+                <span className={`game-name ${isIneligible ? 'game-name-disabled' : ''}`}>
                   {hiddenLabels ? "Mystery item" : item.label}
+                  {isIneligible && (
+                    <span className="disabled-badge" title="Already spun - not available">
+                      ✓
+                    </span>
+                  )}
                 </span>
                 <div className="game-vote-header-right">
                   {votingEnabled && (
@@ -152,9 +161,13 @@ export default function GamesListPanel({
               
               <div className="weight-bar-container">
                 <div 
-                  className="weight-bar"
+                  className={`weight-bar ${isIneligible ? 'weight-bar-disabled' : ''}`}
                   style={{ width: `${percentage}%` }}
-                  title={`Weight: ${totalWeight.toFixed(2)} (${percentage.toFixed(1)}%)`}
+                  title={
+                    isIneligible 
+                      ? "Already spun - not available for selection"
+                      : `Weight: ${totalWeight.toFixed(2)} (${percentage.toFixed(1)}%)`
+                  }
                 />
               </div>
             </div>

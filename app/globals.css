@@ -1228,6 +1228,58 @@ button.ghost {
   min-width: 2px;
 }
 
+.weight-bar-disabled {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.15));
+  opacity: 0.5;
+}
+
+.game-vote-item-disabled {
+  opacity: 0.6;
+  position: relative;
+}
+
+.game-vote-item-disabled::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.game-name-disabled {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.disabled-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(107, 231, 183, 0.2);
+  color: var(--success);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid rgba(107, 231, 183, 0.4);
+}
+
+.vote-inline:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.vote-inline:disabled:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .vote-counts {
   display: flex;
   gap: 8px;
