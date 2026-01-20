@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
+import { playNotificationSound } from "../../lib/utils";
 
 type ChatMessage = {
   id: string;
@@ -50,29 +51,45 @@ const PRESET_REACTIONS = [
 
 // Render chat message with markdown and @mentions
 function ChatMessageContent({ text, players, currentUserName, isReaction = false }: { text: string; players: Array<{ name: string; connected: boolean }>; currentUserName: string; isReaction?: boolean }) {
-  const playerNames = players.map(p => p.name);
+  const playerNames = players.map(p => typeof p === 'string' ? p : p.name);
+  const previousMentionedRef = useRef(false);
   
   // Check if current user is mentioned
-  const mentionRegex = /@(\w+)/g;
+  // Try to match against all player names (including those with spaces)
   const mentions: string[] = [];
-  let match;
-  while ((match = mentionRegex.exec(text)) !== null) {
-    const mentionedUser = match[1];
-    const player = playerNames.find(name => name.toLowerCase() === mentionedUser.toLowerCase());
-    if (player && player.toLowerCase() === currentUserName.toLowerCase()) {
-      mentions.push(player);
+  for (const playerName of playerNames) {
+    // Check if this player name appears in the text as a mention
+    const mentionPattern = new RegExp(`@${playerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$|[^\\w])`, 'gi');
+    if (mentionPattern.test(text)) {
+      if (playerName.toLowerCase() === currentUserName.toLowerCase()) {
+        mentions.push(playerName);
+      }
     }
   }
   const isMentioned = mentions.length > 0;
+  
+  // Play sound when user is mentioned (only once per message)
+  useEffect(() => {
+    if (isMentioned && !previousMentionedRef.current) {
+      playNotificationSound();
+      previousMentionedRef.current = true;
+    } else if (!isMentioned) {
+      previousMentionedRef.current = false;
+    }
+  }, [isMentioned, text]);
 
   // Process text to replace @mentions with markdown-compatible format
-  const processedText = text.replace(/@(\w+)/g, (match, username) => {
-    const player = playerNames.find(name => name.toLowerCase() === username.toLowerCase());
-    if (player) {
-      return `[@${player}](mention:${player})`;
-    }
-    return match;
-  });
+  // Match against all player names (including those with spaces)
+  let processedText = text;
+  // Sort by length (longest first) to match longer names before shorter ones
+  const sortedPlayerNames = [...playerNames].sort((a, b) => b.length - a.length);
+  for (const playerName of sortedPlayerNames) {
+    // Escape special regex characters in the player name
+    const escapedName = playerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Match @ followed by the exact player name, followed by space, end of string, or non-word character
+    const mentionRegex = new RegExp(`@${escapedName}(?=\\s|$|[^\\w])`, 'gi');
+    processedText = processedText.replace(mentionRegex, `[@${playerName}](mention:${playerName})`);
+  }
 
   // For reactions, wrap each character in a span for sparkle effect
   const renderReactionText = (text: string) => {
@@ -143,10 +160,10 @@ function ChatMessageContent({ text, players, currentUserName, isReaction = false
                 const mentionedUser = props.href.replace('mention:', '');
                 return (
                   <span
-                    className="chat-mention"
+                    className="chat-mention chat-mention-pill"
                     style={playerStyle(mentionedUser)}
                   >
-                    {props.children}
+                    @{mentionedUser}
                   </span>
                 );
               }
@@ -231,10 +248,34 @@ export default function ChatPanel({
   // Get autocomplete suggestions for @mentions
   function getMentionSuggestions(query: string): string[] {
     if (!query.startsWith('@')) return [];
-    const search = query.slice(1).toLowerCase();
+    if (!players || players.length === 0) return [];
+    
+    const search = query.slice(1).toLowerCase().trim();
+    const currentUserLower = userName.toLowerCase();
+    
+    // Helper to get player name
+    const getPlayerName = (p: { name: string; connected: boolean } | string): string => {
+      return typeof p === 'string' ? p : p.name;
+    };
+    
+    if (search.length === 0) {
+      // Show all players if just @ is typed (excluding current user)
+      return players
+        .map(getPlayerName)
+        .filter(name => name.toLowerCase() !== currentUserLower)
+        .slice(0, 5);
+    }
+    
+    // Filter by search term - now supports partial matches including spaces
+    // This allows matching "john d" against "john doe"
     return players
-      .filter(p => p.name.toLowerCase().startsWith(search) && p.name.toLowerCase() !== userName.toLowerCase())
-      .map(p => p.name)
+      .map(getPlayerName)
+      .filter(name => {
+        const nameLower = name.toLowerCase();
+        // Check if the search string matches the start of the name
+        // This works for both single-word and multi-word names
+        return nameLower.startsWith(search) && nameLower !== currentUserLower;
+      })
       .slice(0, 5);
   }
 
@@ -244,18 +285,23 @@ export default function ChatPanel({
   useEffect(() => {
     const lastAt = inputText.lastIndexOf('@');
     if (lastAt !== -1) {
-      const afterAt = inputText.slice(lastAt);
-      const spaceAfter = afterAt.indexOf(' ');
-      if (spaceAfter === -1 || spaceAfter > 0) {
-        const query = spaceAfter === -1 ? afterAt : afterAt.slice(0, spaceAfter);
-        const suggestions = getMentionSuggestions(query);
-        setMentionSuggestions(suggestions);
-        setShowMentions(suggestions.length > 0);
-      } else {
-        setShowMentions(false);
-      }
+      // Get text after the @ symbol
+      const afterAt = inputText.slice(lastAt + 1);
+      
+      // For usernames with spaces, we need to be smarter about where the mention ends
+      // Don't stop at the first space - instead, check if what's typed matches the start of any player name
+      // We'll show suggestions as long as the typed text could be part of a player name
+      const queryPart = afterAt;
+      const query = `@${queryPart}`;
+      
+      const suggestions = getMentionSuggestions(query);
+      setMentionSuggestions(suggestions);
+      // Show if we have suggestions and players exist
+      // Also show if query is just "@" to show all players
+      setShowMentions(suggestions.length > 0 || queryPart.trim().length === 0);
     } else {
       setShowMentions(false);
+      setMentionSuggestions([]);
     }
   }, [inputText, players, userName]);
 
