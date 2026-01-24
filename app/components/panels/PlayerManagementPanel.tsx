@@ -3,12 +3,15 @@
 import { useState, useEffect } from "react";
 
 type PlayerManagementPanelProps = {
-  players: Array<{ name: string; connected: boolean }>;
+  players: Array<{ name: string; connected: boolean; observer?: boolean }>;
   socketReady: boolean;
   adminName: string | null;
   playerStats: Record<string, { wins: number; losses: number }>;
+  chatReactionsDisabled: Record<string, boolean>;
   onRenamePlayer: (oldName: string, newName: string) => void;
   onKickPlayer: (playerName: string) => void;
+  onTimeoutChat: (playerName: string) => void;
+  onToggleReactions: (playerName: string, disabled: boolean) => void;
   onAwardWin: (playerName: string) => void;
   onAwardLoss: (playerName: string) => void;
   onResetStats: (playerName: string) => void;
@@ -19,8 +22,11 @@ export default function PlayerManagementPanel({
   socketReady,
   adminName,
   playerStats,
+  chatReactionsDisabled,
   onRenamePlayer,
   onKickPlayer,
+  onTimeoutChat,
+  onToggleReactions,
   onAwardWin,
   onAwardLoss,
   onResetStats,
@@ -172,6 +178,9 @@ export default function PlayerManagementPanel({
                     <span className="player-name">
                       <span className={`connection-indicator ${player.connected ? "connected" : "disconnected"}`} title={player.connected ? "Connected" : "Disconnected"} />
                       {playerName}
+                      {player.observer && (
+                        <span className="observer-icon" title="Observer">👁️</span>
+                      )}
                       {playerStats[playerName] && (
                         <span className="player-stats">
                           {" "}({playerStats[playerName].wins}W / {playerStats[playerName].losses}L)
@@ -179,6 +188,33 @@ export default function PlayerManagementPanel({
                       )}
                     </span>
                     <div className="player-actions">
+                      <button
+                        className="ghost"
+                        onClick={() => onTimeoutChat(playerName)}
+                        disabled={!socketReady}
+                        title="Timeout chat for 5 minutes"
+                      >
+                        Timeout 5m
+                      </button>
+                      <button
+                        className={`ghost ${chatReactionsDisabled[playerName] ? "danger" : ""}`}
+                        onClick={() =>
+                          onToggleReactions(
+                            playerName,
+                            !chatReactionsDisabled[playerName]
+                          )
+                        }
+                        disabled={!socketReady}
+                        title={
+                          chatReactionsDisabled[playerName]
+                            ? "Enable reactions for player"
+                            : "Disable reactions for player"
+                        }
+                      >
+                        {chatReactionsDisabled[playerName]
+                          ? "Reactions off"
+                          : "Reactions on"}
+                      </button>
                       <button
                         className="ghost win-button"
                         onClick={() => onAwardWin(playerName)}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import { playNotificationSound } from "../../lib/utils";
 
@@ -14,9 +14,12 @@ type ChatMessage = {
 type ChatPanelProps = {
   socketReady: boolean;
   userName: string;
-  players: Array<{ name: string; connected: boolean }>;
-  onSendMessage: (text: string, userName: string) => void;
+  players: Array<{ name: string; connected: boolean; observer?: boolean }>;
+  onSendMessage: (text: string, userName: string, isReaction?: boolean) => void;
   messages: ChatMessage[];
+  chatMutedUntil: number;
+  reactionsDisabled: boolean;
+  soundMuted: boolean;
 };
 
 function hashString(value: string) {
@@ -40,17 +43,29 @@ function playerStyle(name: string) {
 // Preset gamer reactions
 const PRESET_REACTIONS = [
   { text: "GG", emoji: "👏", animation: "bounce" },
-  { text: "WP", emoji: "🎯", animation: "pulse" },
+  { text: "Wololo", emoji: "🙏", animation: "pulse", soundUrl: "/assets/sfx/wololo.mp3" },
   { text: "EZ", emoji: "😎", animation: "shake" },
-  { text: "CLUTCH", emoji: "🔥", animation: "glow" },
-  { text: "LETS GO", emoji: "🚀", animation: "bounce" },
-  { text: "NICE", emoji: "💯", animation: "pulse" },
-  { text: "SHEESH", emoji: "😤", animation: "shake" },
-  { text: "BET", emoji: "✅", animation: "glow" },
+  { text: "Dive Deep Win Big", emoji: "🔥", animation: "glow", soundUrl: "/assets/sfx/troy-dive-deep-win-big.mp4" },
+  { text: "Start the game already!", emoji: "🚀", animation: "bounce", soundUrl: "/assets/sfx/start-the-game.mp3" },
+  { text: "Nice one brother", emoji: "💯", animation: "pulse" },
+  { text: "SHEESH", emoji: "😤", animation: "shake", soundUrl: "/assets/sfx/mads-sheesh.mp4" },
+  { text: "Get rekt motherfucker", emoji: "🤬", animation: "glow", soundUrl: "/assets/sfx/get-rekt.ogg" },
 ];
 
 // Render chat message with markdown and @mentions
-function ChatMessageContent({ text, players, currentUserName, isReaction = false }: { text: string; players: Array<{ name: string; connected: boolean }>; currentUserName: string; isReaction?: boolean }) {
+function ChatMessageContent({
+  text,
+  players,
+  currentUserName,
+  isReaction = false,
+  soundMuted,
+}: {
+  text: string;
+  players: Array<{ name: string; connected: boolean }>;
+  currentUserName: string;
+  isReaction?: boolean;
+  soundMuted: boolean;
+}) {
   const playerNames = players.map(p => typeof p === 'string' ? p : p.name);
   const previousMentionedRef = useRef(false);
   
@@ -71,12 +86,14 @@ function ChatMessageContent({ text, players, currentUserName, isReaction = false
   // Play sound when user is mentioned (only once per message)
   useEffect(() => {
     if (isMentioned && !previousMentionedRef.current) {
-      playNotificationSound();
+      if (!soundMuted) {
+        playNotificationSound();
+      }
       previousMentionedRef.current = true;
     } else if (!isMentioned) {
       previousMentionedRef.current = false;
     }
-  }, [isMentioned, text]);
+  }, [isMentioned, soundMuted, text]);
 
   // Process text to replace @mentions with markdown-compatible format
   // Match against all player names (including those with spaces)
@@ -149,13 +166,16 @@ function ChatMessageContent({ text, players, currentUserName, isReaction = false
       ) : (
         <ReactMarkdown
           components={{
-            p: ({ node, ...props }) => <span {...props} />,
-            strong: ({ node, ...props }) => <strong {...props} />,
-            em: ({ node, ...props }) => <em {...props} />,
-            code: ({ node, inline, ...props }) => inline ? (
-              <code {...props} />
-            ) : null,
-            a: ({ node, ...props }: any) => {
+            p: (props) => <span {...props} />,
+            strong: (props) => <strong {...props} />,
+            em: (props) => <em {...props} />,
+            code: (props) => {
+              const { inline, ...rest } = props as React.HTMLAttributes<HTMLElement> & {
+                inline?: boolean;
+              };
+              return inline ? <code {...rest} /> : null;
+            },
+            a: (props) => {
               if (props.href?.startsWith('mention:')) {
                 const mentionedUser = props.href.replace('mention:', '');
                 return (
@@ -186,18 +206,66 @@ export default function ChatPanel({
   players,
   onSendMessage,
   messages,
+  chatMutedUntil,
+  reactionsDisabled,
+  soundMuted,
 }: ChatPanelProps) {
   const [inputText, setInputText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showReactions, setShowReactions] = useState(false);
+  const [reactionCooldownUntil, setReactionCooldownUntil] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const reactionsRef = useRef<HTMLDivElement>(null);
+  const playedReactionIdsRef = useRef<Set<string>>(new Set());
+
+  const playReactionSound = useCallback((soundUrl: string) => {
+    if (typeof window === "undefined") return;
+    if (soundMuted) return;
+    const audio = new Audio(soundUrl);
+    audio.volume = 0.6;
+    audio.play().catch(() => null);
+  }, [soundMuted]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (!messages.length) return;
+    const activeIds = new Set(messages.map((message) => message.id));
+    // Clean up old ids to avoid unbounded growth
+    for (const id of playedReactionIdsRef.current) {
+      if (!activeIds.has(id)) {
+        playedReactionIdsRef.current.delete(id);
+      }
+    }
+    // Only play for the newest message, and only if it wasn't already seen
+    const latest = messages[messages.length - 1];
+    if (!latest || playedReactionIdsRef.current.has(latest.id)) return;
+    const reactionMatch = PRESET_REACTIONS.find(
+      (reaction) =>
+        latest.text.includes(reaction.emoji) &&
+        latest.text.includes(reaction.text)
+    );
+    if (reactionMatch?.soundUrl) {
+      playedReactionIdsRef.current.add(latest.id);
+      playReactionSound(reactionMatch.soundUrl);
+    }
+  }, [messages, playReactionSound]);
+
+  const isTimedOut = chatMutedUntil > now;
+  const shouldTick = showReactions || reactionCooldownUntil > now || isTimedOut;
+
+  useEffect(() => {
+    if (!shouldTick) return;
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 500);
+    return () => window.clearInterval(interval);
+  }, [shouldTick]);
 
   // Close reactions when clicking outside
   useEffect(() => {
@@ -208,13 +276,20 @@ export default function ChatPanel({
     }
     if (showReactions) {
       document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+      };
     }
   }, [showReactions]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!inputText.trim() || !socketReady || !userName.trim()) {
+      return;
+    }
+    if (isTimedOut) {
+      setError("You are timed out from chat.");
+      setTimeout(() => setError(null), 3000);
       return;
     }
 
@@ -231,10 +306,14 @@ export default function ChatPanel({
   }
 
   function handleReactionClick(reaction: typeof PRESET_REACTIONS[0]) {
+    if (isTimedOut || reactionsDisabled || now < reactionCooldownUntil) {
+      return;
+    }
     const message = `${reaction.emoji} ${reaction.text}`;
     if (socketReady && userName.trim()) {
-      onSendMessage(message, userName);
+      onSendMessage(message, userName, true);
     }
+    setReactionCooldownUntil(now + 15000);
     setShowReactions(false);
   }
 
@@ -279,31 +358,26 @@ export default function ChatPanel({
       .slice(0, 5);
   }
 
-  const [mentionSuggestions, setMentionSuggestions] = useState<string[]>([]);
-  const [showMentions, setShowMentions] = useState(false);
-
-  useEffect(() => {
+  const { mentionSuggestions, showMentions } = (() => {
     const lastAt = inputText.lastIndexOf('@');
-    if (lastAt !== -1) {
-      // Get text after the @ symbol
-      const afterAt = inputText.slice(lastAt + 1);
-      
-      // For usernames with spaces, we need to be smarter about where the mention ends
-      // Don't stop at the first space - instead, check if what's typed matches the start of any player name
-      // We'll show suggestions as long as the typed text could be part of a player name
-      const queryPart = afterAt;
-      const query = `@${queryPart}`;
-      
-      const suggestions = getMentionSuggestions(query);
-      setMentionSuggestions(suggestions);
-      // Show if we have suggestions and players exist
-      // Also show if query is just "@" to show all players
-      setShowMentions(suggestions.length > 0 || queryPart.trim().length === 0);
-    } else {
-      setShowMentions(false);
-      setMentionSuggestions([]);
+    if (lastAt === -1) {
+      return { mentionSuggestions: [], showMentions: false };
     }
-  }, [inputText, players, userName]);
+    // Get text after the @ symbol
+    const afterAt = inputText.slice(lastAt + 1);
+    
+    // For usernames with spaces, we need to be smarter about where the mention ends
+    // Don't stop at the first space - instead, check if what's typed matches the start of any player name
+    // We'll show suggestions as long as the typed text could be part of a player name
+    const queryPart = afterAt;
+    const query = `@${queryPart}`;
+    
+    const suggestions = getMentionSuggestions(query);
+    return {
+      mentionSuggestions: suggestions,
+      showMentions: suggestions.length > 0 || queryPart.trim().length === 0,
+    };
+  })();
 
   function handleMentionSelect(name: string) {
     const lastAt = inputText.lastIndexOf('@');
@@ -314,12 +388,23 @@ export default function ChatPanel({
       const rest = spaceAfter === -1 ? '' : after.slice(spaceAfter);
       setInputText(`${before}@${name}${rest}`);
     }
-    setShowMentions(false);
   }
 
   return (
     <div className="panel-block chat-panel">
-      <h3>Chat</h3>
+      <div className="panel-header" style={{ alignItems: "center" }}>
+        <h3 style={{ margin: 0 }}>Chat</h3>
+      </div>
+      {isTimedOut && (
+        <p className="subtle" style={{ marginTop: "6px" }}>
+          You are timed out from chat for {Math.ceil((chatMutedUntil - now) / 1000)}s.
+        </p>
+      )}
+      {reactionsDisabled && !isTimedOut && (
+        <p className="subtle" style={{ marginTop: "6px" }}>
+          Reactions are disabled for you.
+        </p>
+      )}
       <div className="chat-messages" ref={messagesContainerRef}>
         {!messages || messages.length === 0 ? (
           <p className="subtle">No messages yet. Start the conversation!</p>
@@ -343,7 +428,7 @@ export default function ChatPanel({
             reactionMessages.add(messages[index].id);
           });
           
-          return messages.map((message, index) => {
+          return messages.map((message) => {
             // Check if message contains a reaction
             const reactionMatch = PRESET_REACTIONS.find(r => 
               message.text.includes(r.emoji) && message.text.includes(r.text)
@@ -365,6 +450,7 @@ export default function ChatPanel({
                   players={players}
                   currentUserName={userName}
                   isReaction={isReaction}
+                  soundMuted={soundMuted}
                 />
                 <span className="chat-time">{formatTime(message.timestamp)}</span>
               </div>
@@ -382,7 +468,7 @@ export default function ChatPanel({
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder={userName.trim() ? "Type a message... (use @username to tag)" : "Set your name first"}
-              disabled={!socketReady || !userName.trim()}
+              disabled={!socketReady || !userName.trim() || isTimedOut}
               maxLength={500}
               className="chat-input"
             />
@@ -407,14 +493,14 @@ export default function ChatPanel({
               type="button"
               className="chat-reaction-button"
               onClick={() => setShowReactions(!showReactions)}
-              disabled={!socketReady || !userName.trim()}
+              disabled={!socketReady || !userName.trim() || isTimedOut || reactionsDisabled}
               title="Quick reactions"
             >
               😀
             </button>
             <button
               type="submit"
-              disabled={!socketReady || !userName.trim() || !inputText.trim()}
+              disabled={!socketReady || !userName.trim() || !inputText.trim() || isTimedOut}
               className="chat-send-button"
             >
               Send
@@ -423,6 +509,13 @@ export default function ChatPanel({
         </form>
         {showReactions && (
           <div className="chat-reactions" ref={reactionsRef}>
+            {reactionCooldownUntil > now && (
+              <div className="reaction-cooldown-overlay">
+                <div className="reaction-cooldown-text">
+                  {Math.ceil((reactionCooldownUntil - now) / 1000)}s
+                </div>
+              </div>
+            )}
             {PRESET_REACTIONS.map((reaction, index) => (
               <button
                 key={index}
@@ -430,6 +523,7 @@ export default function ChatPanel({
                 className={`chat-reaction-item reaction-${reaction.animation}`}
                 onClick={() => handleReactionClick(reaction)}
                 title={reaction.text}
+                disabled={reactionCooldownUntil > now || isTimedOut || reactionsDisabled}
               >
                 <span className="reaction-emoji">{reaction.emoji}</span>
                 <span className="reaction-text">{reaction.text}</span>

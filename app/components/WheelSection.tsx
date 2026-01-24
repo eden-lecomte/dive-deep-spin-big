@@ -1,7 +1,8 @@
 import Image from "next/image";
-import { useState, useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import type { CSSProperties } from "react";
 import type { TeamState, WheelItem, WheelSegment } from "../lib/types";
+import TeamsSection from "./TeamsSection";
 
 type WheelSectionProps = {
   viewMode: boolean;
@@ -59,31 +60,6 @@ export default function WheelSection({
   const shellStyle: CSSProperties = {
     ["--wheel-rotation" as string]: `${rotation}deg`,
     ["--spin-duration" as string]: `${spinDuration}ms`,
-  };
-
-  // Track recently awarded victories to disable buttons temporarily
-  const [recentlyAwarded, setRecentlyAwarded] = useState<{
-    team: "A" | "B" | string | null;
-    type: "win" | "loss" | null;
-  }>({ team: null, type: null });
-
-  useEffect(() => {
-    if (recentlyAwarded.team && recentlyAwarded.type) {
-      const timer = setTimeout(() => {
-        setRecentlyAwarded({ team: null, type: null });
-      }, 3000); // 3 seconds
-      return () => clearTimeout(timer);
-    }
-  }, [recentlyAwarded]);
-
-  const handleTeamWin = (team: "A" | "B" | string, teamNames: string[]) => {
-    setRecentlyAwarded({ team, type: "win" });
-    onAwardTeamWin(teamNames);
-  };
-
-  const handleTeamLoss = (team: "A" | "B" | string, teamNames: string[]) => {
-    setRecentlyAwarded({ team, type: "loss" });
-    onAwardTeamLoss(teamNames);
   };
 
   const legendData = useMemo(() => {
@@ -188,22 +164,18 @@ export default function WheelSection({
           {pendingResultId && isSpinning && <p className="result-text">Spinning...</p>}
           {landedItem && !isSpinning && (
             <div className="result-card">
-              <div>
-                <h2>{landedItem.label}</h2>
+              <div className="result-header">
                 {landedItem.imageUrl && (
                   <Image
                     src={landedItem.imageUrl}
                     alt={landedItem.label}
                     className="result-image"
-                    width={280}
-                    height={200}
+                    width={160}
+                    height={120}
                     unoptimized
                   />
                 )}
-              </div>
-              <div className="result-meta">
-                <p>Weight: {landedItem.weight}</p>
-                {landedItem.soundUrl && <p>Sound: Ready</p>}
+                <h2>{landedItem.label}</h2>
               </div>
             </div>
           )}
@@ -211,103 +183,17 @@ export default function WheelSection({
       )}
 
       {!viewMode && !isSpinning && (adminUnlocked || teamState) && (
-        <div className="team-area">
-          <div className="team-header">
-            <p className="eyebrow">Teams</p>
-            {adminUnlocked && (
-              <div style={{ display: "flex", gap: "8px" }}>
-                {!teamState && (
-                  <button className="primary" onClick={onCreateTeams}>
-                    {landedItem ? `Create teams for ${landedItem.label}` : "Create teams"}
-                  </button>
-                )}
-                <button
-                  className="ghost"
-                  onClick={onCreateTeams}
-                  disabled={!teamState}
-                  title={teamState ? "Shuffle teams" : "Create teams first"}
-                >
-                  Shuffle teams
-                </button>
-                <button className="ghost" onClick={onCreateFreeForAll}>
-                  Free for all
-                </button>
-              </div>
-            )}
-          </div>
-          {teamState && (
-            <div className="team-grid">
-              <div className={`team-card ${teamShuffle ? "shuffle" : ""}`}>
-                <div className="team-card-header">
-                  <h3>Team A</h3>
-                  {adminUnlocked && (
-                    <div className="team-actions">
-                      <button
-                        className={`ghost win-button ${recentlyAwarded.team === "A" && recentlyAwarded.type === "win" ? "recently-awarded" : ""}`}
-                        onClick={() => {
-                          handleTeamWin("A", teamState.teamA);
-                        }}
-                        disabled={recentlyAwarded.team === "A" && recentlyAwarded.type === "win"}
-                        title="Award win to Team A"
-                      >
-                        🏆
-                      </button>
-                      <button
-                        className={`ghost loss-button ${recentlyAwarded.team === "A" && recentlyAwarded.type === "loss" ? "recently-awarded" : ""}`}
-                        onClick={() => {
-                          handleTeamLoss("A", teamState.teamA);
-                        }}
-                        disabled={recentlyAwarded.team === "A" && recentlyAwarded.type === "loss"}
-                        title="Award loss to Team A"
-                      >
-                        💀
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <ul>
-                  {teamState.teamA.map((name, index) => (
-                    <li key={`a-${name}-${index}`}>{name}</li>
-                  ))}
-                </ul>
-              </div>
-              <div className={`team-card ${teamShuffle ? "shuffle" : ""}`}>
-                <div className="team-card-header">
-                  <h3>Team B</h3>
-                  {adminUnlocked && (
-                    <div className="team-actions">
-                      <button
-                        className={`ghost win-button ${recentlyAwarded.team === "B" && recentlyAwarded.type === "win" ? "recently-awarded" : ""}`}
-                        onClick={() => {
-                          handleTeamWin("B", teamState.teamB);
-                        }}
-                        disabled={recentlyAwarded.team === "B" && recentlyAwarded.type === "win"}
-                        title="Award win to Team B"
-                      >
-                        🏆
-                      </button>
-                      <button
-                        className={`ghost loss-button ${recentlyAwarded.team === "B" && recentlyAwarded.type === "loss" ? "recently-awarded" : ""}`}
-                        onClick={() => {
-                          handleTeamLoss("B", teamState.teamB);
-                        }}
-                        disabled={recentlyAwarded.team === "B" && recentlyAwarded.type === "loss"}
-                        title="Award loss to Team B"
-                      >
-                        💀
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <ul>
-                  {teamState.teamB.map((name, index) => (
-                    <li key={`b-${name}-${index}`}>{name}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          )}
-        </div>
+        <TeamsSection
+          teamState={teamState}
+          teamShuffle={teamShuffle}
+          adminUnlocked={adminUnlocked}
+          landedItemLabel={landedItem?.label}
+          showControls
+          onCreateTeams={onCreateTeams}
+          onCreateFreeForAll={onCreateFreeForAll}
+          onAwardTeamWin={onAwardTeamWin}
+          onAwardTeamLoss={onAwardTeamLoss}
+        />
       )}
 
       {statusMessage && <p className="warning">{statusMessage}</p>}

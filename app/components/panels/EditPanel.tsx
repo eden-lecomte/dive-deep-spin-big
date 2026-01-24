@@ -38,11 +38,48 @@ export default function EditPanel({
   const [importStatus, setImportStatus] = useState<"idle" | "success" | "error">(
     "idle"
   );
+  const [invalidImages, setInvalidImages] = useState<Record<string, boolean>>({});
+  const [invalidDraftImage, setInvalidDraftImage] = useState(false);
+  const [imageOptions, setImageOptions] = useState<string[]>([]);
+  const [soundOptions, setSoundOptions] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const [isCollapsed, setIsCollapsed] = useLocalStorageState<boolean>(
     "wheel:gamesListCollapsed",
     false
   );
+
+  useEffect(() => {
+    let isMounted = true;
+    Promise.all([
+      fetch("/api/assets/images").then((res) => res.json()),
+      fetch("/api/assets/sfx").then((res) => res.json()),
+    ])
+      .then(([images, sfx]) => {
+        if (!isMounted) return;
+        setImageOptions(Array.isArray(images?.files) ? images.files : []);
+        setSoundOptions(Array.isArray(sfx?.files) ? sfx.files : []);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setImageOptions([]);
+        setSoundOptions([]);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const playSoundPreview = (url?: string) => {
+    if (!url) return;
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current.currentTime = 0;
+    }
+    const audio = new Audio(url);
+    previewAudioRef.current = audio;
+    audio.play().catch(() => null);
+  };
 
   function handleImportClick() {
     fileInputRef.current?.click();
@@ -212,32 +249,81 @@ export default function EditPanel({
                   min="0.1"
                   step="0.1"
                   value={item.weight}
+                  className="weight-input"
                   onChange={(event) =>
                     onUpdateItem(item.id, {
                       weight: Number(event.target.value) || 1,
                     })
                   }
                 />
-                <input
-                  type="text"
-                  value={item.imageUrl || ""}
-                  onChange={(event) =>
-                    onUpdateItem(item.id, {
-                      imageUrl: event.target.value || undefined,
-                    })
-                  }
-                  placeholder="Image URL"
-                />
-                <input
-                  type="text"
-                  value={item.soundUrl || ""}
-                  onChange={(event) =>
-                    onUpdateItem(item.id, {
-                      soundUrl: event.target.value || undefined,
-                    })
-                  }
-                  placeholder="Sound URL"
-                />
+                <div className="image-input-with-preview">
+                  {imageOptions.length > 0 && (
+                    <select
+                      value={
+                        item.imageUrl?.startsWith("/assets/images/")
+                          ? item.imageUrl
+                          : ""
+                      }
+                      onChange={(event) => {
+                        setInvalidImages((prev) => ({ ...prev, [item.id]: false }));
+                        onUpdateItem(item.id, {
+                          imageUrl: event.target.value || undefined,
+                        });
+                      }}
+                    >
+                      <option value="">Select image…</option>
+                      {imageOptions.map((file) => (
+                        <option key={file} value={`/assets/images/${file}`}>
+                          {file}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {item.imageUrl && !invalidImages[item.id] && (
+                    <img
+                      className="edit-image-preview"
+                      src={item.imageUrl}
+                      alt=""
+                      onError={() =>
+                        setInvalidImages((prev) => ({ ...prev, [item.id]: true }))
+                      }
+                    />
+                  )}
+                </div>
+                <div className="asset-input-stack">
+                  {soundOptions.length > 0 && (
+                    <div className="sound-select-row">
+                      <select
+                        value={
+                          item.soundUrl?.startsWith("/assets/sfx/")
+                            ? item.soundUrl
+                            : ""
+                        }
+                        onChange={(event) =>
+                          onUpdateItem(item.id, {
+                            soundUrl: event.target.value || undefined,
+                          })
+                        }
+                      >
+                        <option value="">Select sound…</option>
+                        {soundOptions.map((file) => (
+                          <option key={file} value={`/assets/sfx/${file}`}>
+                            {file}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => playSoundPreview(item.soundUrl)}
+                        disabled={!item.soundUrl}
+                        title="Preview sound"
+                      >
+                        ▶
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <button className="ghost" onClick={() => onRemoveItem(item.id)}>
                   Remove
                 </button>
@@ -258,6 +344,7 @@ export default function EditPanel({
               min="0.1"
               step="0.1"
               value={draftItem.weight}
+              className="weight-input"
               onChange={(event) =>
                 onDraftChange({
                   ...draftItem,
@@ -265,22 +352,71 @@ export default function EditPanel({
                 })
               }
             />
-            <input
-              type="text"
-              value={draftItem.imageUrl}
-              onChange={(event) =>
-                onDraftChange({ ...draftItem, imageUrl: event.target.value })
-              }
-              placeholder="Image URL"
-            />
-            <input
-              type="text"
-              value={draftItem.soundUrl}
-              onChange={(event) =>
-                onDraftChange({ ...draftItem, soundUrl: event.target.value })
-              }
-              placeholder="Sound URL"
-            />
+            <div className="image-input-with-preview">
+              {imageOptions.length > 0 && (
+                <select
+                  value={
+                    draftItem.imageUrl.startsWith("/assets/images/")
+                      ? draftItem.imageUrl
+                      : ""
+                  }
+                  onChange={(event) => {
+                    setInvalidDraftImage(false);
+                    onDraftChange({
+                      ...draftItem,
+                      imageUrl: event.target.value,
+                    });
+                  }}
+                >
+                  <option value="">Select image…</option>
+                  {imageOptions.map((file) => (
+                    <option key={file} value={`/assets/images/${file}`}>
+                      {file}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {draftItem.imageUrl && !invalidDraftImage && (
+                <img
+                  className="edit-image-preview"
+                  src={draftItem.imageUrl}
+                  alt=""
+                  onError={() => setInvalidDraftImage(true)}
+                />
+              )}
+            </div>
+            <div className="asset-input-stack">
+              {soundOptions.length > 0 && (
+                <div className="sound-select-row">
+                  <select
+                    value={
+                      draftItem.soundUrl.startsWith("/assets/sfx/")
+                        ? draftItem.soundUrl
+                        : ""
+                    }
+                    onChange={(event) =>
+                      onDraftChange({ ...draftItem, soundUrl: event.target.value })
+                    }
+                  >
+                    <option value="">Select sound…</option>
+                    {soundOptions.map((file) => (
+                      <option key={file} value={`/assets/sfx/${file}`}>
+                        {file}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => playSoundPreview(draftItem.soundUrl)}
+                    disabled={!draftItem.soundUrl}
+                    title="Preview sound"
+                  >
+                    ▶
+                  </button>
+                </div>
+              )}
+            </div>
             <button className="primary" onClick={onDraftSubmit}>
               Add item
             </button>

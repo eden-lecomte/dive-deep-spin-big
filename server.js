@@ -24,6 +24,8 @@ const deviceConnectionsByRoom = new Map(); // Track device IDs per room
 const roomLastActivity = new Map(); // Track last activity timestamp for each room
 const chatMessagesByRoom = new Map(); // Track chat messages per room (max 200)
 const chatRateLimitByUser = new Map(); // Track message timestamps per user for rate limiting
+const chatTimeoutsByRoom = new Map(); // Map<room, Map<name, timeoutUntil>>
+const chatReactionsDisabledByRoom = new Map(); // Map<room, Map<name, boolean>>
 let clientCounter = 0;
 
 function getRoom(req) {
@@ -94,11 +96,31 @@ function getPresence(room) {
   return presenceByRoom.get(room);
 }
 
+function normalizePresenceEntry(entry) {
+  if (!entry) return { name: "", observer: false };
+  if (typeof entry === "string") return { name: entry, observer: false };
+  return { name: entry.name || "", observer: !!entry.observer };
+}
+
 function getChatMessages(room) {
   if (!chatMessagesByRoom.has(room)) {
     chatMessagesByRoom.set(room, []);
   }
   return chatMessagesByRoom.get(room);
+}
+
+function getChatTimeouts(room) {
+  if (!chatTimeoutsByRoom.has(room)) {
+    chatTimeoutsByRoom.set(room, new Map());
+  }
+  return chatTimeoutsByRoom.get(room);
+}
+
+function getChatReactionsDisabled(room) {
+  if (!chatReactionsDisabledByRoom.has(room)) {
+    chatReactionsDisabledByRoom.set(room, new Map());
+  }
+  return chatReactionsDisabledByRoom.get(room);
 }
 
 function checkChatRateLimit(clientId, userName) {
@@ -160,6 +182,8 @@ function cleanupStaleRooms() {
       ...adminByRoom.keys(),
       ...teamStateByRoom.keys(),
       ...bulletinBoardByRoom.keys(),
+      ...chatTimeoutsByRoom.keys(),
+      ...chatReactionsDisabledByRoom.keys(),
     ]);
   
   for (const room of allRoomsWithData) {
@@ -196,6 +220,8 @@ function cleanupStaleRooms() {
       deviceConnectionsByRoom.delete(room);
       roomLastActivity.delete(room);
       chatMessagesByRoom.delete(room);
+      chatTimeoutsByRoom.delete(room);
+      chatReactionsDisabledByRoom.delete(room);
     }
   
   if (roomsToCleanup.length > 0) {
@@ -210,11 +236,14 @@ function broadcastPresence(room) {
   
   // Build players array with connection status
   const allPlayers = Array.from(presence.entries())
-    .filter(([_, playerData]) => playerData && (typeof playerData === 'string' ? playerData : playerData.name))
+    .filter(([_, playerData]) => {
+      const { name } = normalizePresenceEntry(playerData);
+      return Boolean(name);
+    })
     .map(([clientId, playerData]) => {
-      const name = typeof playerData === 'string' ? playerData : playerData.name;
+      const { name, observer } = normalizePresenceEntry(playerData);
       const connected = connectedClientIds.has(clientId);
-      return { name, connected, clientId };
+      return { name, connected, observer, clientId };
     });
   
   // Deduplicate by name - if same name appears multiple times, keep the connected one
@@ -222,7 +251,11 @@ function broadcastPresence(room) {
   for (const player of allPlayers) {
     const existing = playersByName.get(player.name);
     if (!existing || (player.connected && !existing.connected)) {
-      playersByName.set(player.name, { name: player.name, connected: player.connected });
+      playersByName.set(player.name, {
+        name: player.name,
+        connected: player.connected,
+        observer: !!player.observer,
+      });
     }
   }
   
@@ -289,7 +322,7 @@ app.prepare().then(() => {
     if (!admin || !admin.name) return false;
     const presence = getPresence(room);
     const clientName = presence.get(ws.clientId);
-    const clientNameStr = typeof clientName === 'string' ? clientName : clientName?.name;
+    const clientNameStr = normalizePresenceEntry(clientName).name;
     if (!clientNameStr) return false;
     return clientNameStr.trim().toLowerCase() === admin.name.trim().toLowerCase();
   }
@@ -338,16 +371,21 @@ app.prepare().then(() => {
     const connectedClientIds = new Set(Array.from(clients).map(c => c.clientId));
     // Build players array with connection status
     const players = Array.from(presence.entries())
-      .filter(([_, playerData]) => playerData && (typeof playerData === 'string' ? playerData : playerData.name))
+      .filter(([_, playerData]) => {
+        const { name } = normalizePresenceEntry(playerData);
+        return Boolean(name);
+      })
       .map(([clientId, playerData]) => {
-        const name = typeof playerData === 'string' ? playerData : playerData.name;
+        const { name, observer } = normalizePresenceEntry(playerData);
         const connected = connectedClientIds.has(clientId);
-        return { name, connected };
+        return { name, connected, observer };
       });
     const items = itemsByRoom.get(room) || null;
     const settings = settingsByRoom.get(room) || null;
     const bulletinBoard = bulletinBoardByRoom.get(room) || null;
     const chatMessages = getChatMessages(room);
+    const chatTimeouts = Object.fromEntries(getChatTimeouts(room));
+    const chatReactionsDisabled = Object.fromEntries(getChatReactionsDisabled(room));
     const timerData = timerByRoom.get(room);
     // Check if timer has expired
     let timer = null;
@@ -393,6 +431,8 @@ app.prepare().then(() => {
         settings,
         bulletinBoard,
         chatMessages: getChatMessages(room),
+        chatTimeouts,
+        chatReactionsDisabled,
       };
     } else {
       // Normal connection flow - send sync immediately
@@ -417,6 +457,8 @@ app.prepare().then(() => {
             settings,
             bulletinBoard,
             chatMessages,
+            chatTimeouts,
+            chatReactionsDisabled,
             clientId: ws.clientId,
             clientIsAdmin: clientIsAdmin, // Indicate if client name matches admin name
             timer, // Include timer state
@@ -486,6 +528,8 @@ app.prepare().then(() => {
                   settings: pendingData.settings,
                   bulletinBoard: pendingData.bulletinBoard,
                   chatMessages: getChatMessages(room),
+                  chatTimeouts: pendingData.chatTimeouts || {},
+                  chatReactionsDisabled: pendingData.chatReactionsDisabled || {},
                   clientId: ws.clientId,
                 },
               })
@@ -568,7 +612,7 @@ app.prepare().then(() => {
 
 
       if (message?.type === "presence") {
-        const { name } = message.payload || {};
+        const { name, observer } = message.payload || {};
         const presence = getPresence(room);
         if (!name) {
           presence.delete(ws.clientId);
@@ -577,11 +621,13 @@ app.prepare().then(() => {
         }
         
         const nameTrimmed = name.trim();
-        const currentName = presence.get(ws.clientId);
+        const currentEntry = presence.get(ws.clientId);
+        const { name: currentNameStr, observer: currentObserver } =
+          normalizePresenceEntry(currentEntry);
         
-        // If the name hasn't changed, just update it (allows case changes, trimming, etc.)
-        if (currentName && (typeof currentName === 'string' ? currentName.trim() : currentName.name?.trim()) === nameTrimmed) {
-          presence.set(ws.clientId, nameTrimmed);
+        // If the name hasn't changed and observer hasn't changed, no-op
+        if (currentNameStr && currentNameStr.trim() === nameTrimmed && currentObserver === !!observer) {
+          presence.set(ws.clientId, { name: nameTrimmed, observer: !!observer });
           broadcastPresence(room);
           return;
         }
@@ -593,7 +639,7 @@ app.prepare().then(() => {
         for (const [clientId, existingData] of presence.entries()) {
           // Skip checking against the current client
           if (clientId === ws.clientId) continue;
-          const existingName = typeof existingData === 'string' ? existingData : existingData?.name;
+          const { name: existingName } = normalizePresenceEntry(existingData);
           // Only check against connected clients (allow disconnected players to be replaced)
           if (existingName && existingName.trim().toLowerCase() === nameTrimmed.toLowerCase() && connectedClientIds.has(clientId)) {
             nameTaken = true;
@@ -615,7 +661,7 @@ app.prepare().then(() => {
         // Clean up any old entries with the same name (from previous disconnections)
         for (const [clientId, existingData] of presence.entries()) {
           if (clientId === ws.clientId) continue;
-          const existingName = typeof existingData === 'string' ? existingData : existingData?.name;
+          const { name: existingName } = normalizePresenceEntry(existingData);
           if (existingName && existingName.trim().toLowerCase() === nameTrimmed.toLowerCase()) {
             // Remove old entry for this name (player reconnected)
             presence.delete(clientId);
@@ -623,7 +669,7 @@ app.prepare().then(() => {
         }
         
         // Name is available, set it
-        presence.set(ws.clientId, nameTrimmed);
+        presence.set(ws.clientId, { name: nameTrimmed, observer: !!observer });
         broadcastPresence(room);
         
         // After setting name, check if this client should be recognized as admin
@@ -640,6 +686,19 @@ app.prepare().then(() => {
             })
           );
         }
+        // If user is an observer, clear their votes
+        if (observer) {
+          const currentVotes = roomVotesByRoom.get(room) || {};
+          if (currentVotes[nameTrimmed]) {
+            const nextVotes = { ...currentVotes };
+            delete nextVotes[nameTrimmed];
+            roomVotesByRoom.set(room, nextVotes);
+            broadcast(room, {
+              type: "roomVotes",
+              payload: { roomVotes: nextVotes },
+            });
+          }
+        }
         return;
       }
 
@@ -652,7 +711,7 @@ app.prepare().then(() => {
         // Check if client's name matches admin name (for reconnection scenarios)
         const presence = getPresence(room);
         const clientName = presence.get(ws.clientId);
-        const clientNameStr = typeof clientName === 'string' ? clientName : clientName?.name;
+        const clientNameStr = normalizePresenceEntry(clientName).name;
         if (clientNameStr && admin.name && clientNameStr.trim().toLowerCase() === admin.name.trim().toLowerCase()) {
           // Name matches admin, but still need PIN verification for security
           // If pin is provided, verify it matches
@@ -720,7 +779,7 @@ app.prepare().then(() => {
 
       if (message?.type === "admin_claim") {
         updateRoomActivity(room);
-        const { name, pin } = message.payload || {};
+        const { name, pin, items } = message.payload || {};
         if (!name || !/^\d{4}$/.test(pin || "")) {
           ws.send(
             JSON.stringify({
@@ -750,6 +809,13 @@ app.prepare().then(() => {
         }
         adminByRoom.set(room, { pin, name });
         ws.isAdmin = true; // Set admin flag when claiming
+        if (Array.isArray(items)) {
+          itemsByRoom.set(room, items);
+          broadcast(room, {
+            type: "items_update",
+            payload: { items },
+          });
+        }
         ws.send(
           JSON.stringify({
             type: "admin_result",
@@ -788,11 +854,14 @@ app.prepare().then(() => {
         let renamed = false;
         const oldNameTrimmed = oldName.trim();
         const newNameTrimmed = newName.trim();
+        const chatTimeouts = getChatTimeouts(room);
+        const chatReactionsDisabled = getChatReactionsDisabled(room);
         // Find clientId by old name and update (compare with trimmed names)
         for (const [clientId, name] of presence.entries()) {
           // Compare both trimmed to handle whitespace differences
-          if (name && name.trim() === oldNameTrimmed) {
-            presence.set(clientId, newNameTrimmed);
+          const { name: currentName, observer } = normalizePresenceEntry(name);
+          if (currentName && currentName.trim() === oldNameTrimmed) {
+            presence.set(clientId, { name: newNameTrimmed, observer });
             // Update votes if any
             const roomVotes = roomVotesByRoom.get(room) || {};
             // Check all possible name variations (with/without trim)
@@ -824,12 +893,30 @@ app.prepare().then(() => {
                 payload: { claimed: true, adminName: newNameTrimmed },
               });
             }
+            // Update chat restrictions
+            if (chatTimeouts.has(oldNameTrimmed)) {
+              const timeoutUntil = chatTimeouts.get(oldNameTrimmed);
+              chatTimeouts.delete(oldNameTrimmed);
+              chatTimeouts.set(newNameTrimmed, timeoutUntil);
+            }
+            if (chatReactionsDisabled.has(oldNameTrimmed)) {
+              const disabled = chatReactionsDisabled.get(oldNameTrimmed);
+              chatReactionsDisabled.delete(oldNameTrimmed);
+              chatReactionsDisabled.set(newNameTrimmed, disabled);
+            }
             renamed = true;
             break;
           }
         }
         if (renamed) {
           broadcastPresence(room);
+          broadcast(room, {
+            type: "chat_restrictions_update",
+            payload: {
+              chatTimeouts: Object.fromEntries(chatTimeouts),
+              chatReactionsDisabled: Object.fromEntries(chatReactionsDisabled),
+            },
+          });
           ws.send(
             JSON.stringify({
               type: "player_rename_result",
@@ -888,9 +975,12 @@ app.prepare().then(() => {
         let kicked = false;
         let targetClientId = null;
         const playerNameTrimmed = playerName.trim();
+        const chatTimeouts = getChatTimeouts(room);
+        const chatReactionsDisabled = getChatReactionsDisabled(room);
         // Find clientId by player name (compare with trimmed names)
         for (const [clientId, name] of presence.entries()) {
-          if (name && name.trim() === playerNameTrimmed) {
+          const { name: currentName } = normalizePresenceEntry(name);
+          if (currentName && currentName.trim() === playerNameTrimmed) {
             targetClientId = clientId;
             break;
           }
@@ -916,6 +1006,9 @@ app.prepare().then(() => {
               payload: { roomVotes: newVotes },
             });
           }
+          // Remove chat restrictions
+          chatTimeouts.delete(playerNameTrimmed);
+          chatReactionsDisabled.delete(playerNameTrimmed);
           // Find and close the WebSocket connection
           const clients = getRoomClients(room);
           for (const client of clients) {
@@ -932,6 +1025,13 @@ app.prepare().then(() => {
         if (kicked) {
           // Broadcast updated presence (the close handler will also do this, but do it here too)
           broadcastPresence(room);
+          broadcast(room, {
+            type: "chat_restrictions_update",
+            payload: {
+              chatTimeouts: Object.fromEntries(chatTimeouts),
+              chatReactionsDisabled: Object.fromEntries(chatReactionsDisabled),
+            },
+          });
           ws.send(
             JSON.stringify({
               type: "player_kick_result",
@@ -952,6 +1052,12 @@ app.prepare().then(() => {
       if (message?.type === "vote") {
         const { name, itemId, level } = message.payload || {};
         if (!name || !itemId || !level) return;
+        const presence = getPresence(room);
+        const playerData = presence.get(ws.clientId);
+        const { observer } = normalizePresenceEntry(playerData);
+        if (observer) {
+          return;
+        }
         const nextVotes = roomVotesByRoom.get(room) || {};
         const userVotes = nextVotes[name] || {};
         const filteredVotes = Object.fromEntries(
@@ -965,6 +1071,22 @@ app.prepare().then(() => {
           type: "roomVotes",
           payload: { roomVotes: roomVotesByRoom.get(room) },
         });
+        return;
+      }
+
+      if (message?.type === "clear_votes") {
+        const { name } = message.payload || {};
+        if (!name) return;
+        const nextVotes = roomVotesByRoom.get(room) || {};
+        if (nextVotes[name]) {
+          const updated = { ...nextVotes };
+          delete updated[name];
+          roomVotesByRoom.set(room, updated);
+          broadcast(room, {
+            type: "roomVotes",
+            payload: { roomVotes: updated },
+          });
+        }
         return;
       }
 
@@ -1174,7 +1296,7 @@ app.prepare().then(() => {
           return;
         }
         
-        const { text, userName } = message.payload || {};
+        const { text, userName, isReaction } = message.payload || {};
         if (!text || !userName || typeof text !== "string" || typeof userName !== "string") {
           ws.send(
             JSON.stringify({
@@ -1223,6 +1345,31 @@ app.prepare().then(() => {
           return;
         }
 
+        // Enforce chat timeout
+        const chatTimeouts = getChatTimeouts(room);
+        const timeoutUntil = chatTimeouts.get(playerName);
+        if (timeoutUntil && timeoutUntil > Date.now()) {
+          ws.send(
+            JSON.stringify({
+              type: "chat_error",
+              payload: { message: "You are timed out from chat." },
+            })
+          );
+          return;
+        }
+
+        // Enforce reaction disable
+        const chatReactionsDisabled = getChatReactionsDisabled(room);
+        if (isReaction && chatReactionsDisabled.get(playerName)) {
+          ws.send(
+            JSON.stringify({
+              type: "chat_error",
+              payload: { message: "Reactions are disabled for you." },
+            })
+          );
+          return;
+        }
+
         // Create chat message using server-authoritative playerName
         const chatMessage = {
           id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -1245,6 +1392,89 @@ app.prepare().then(() => {
           type: "chat_message",
           payload: chatMessage,
         });
+        return;
+      }
+
+      if (message?.type === "chat_timeout") {
+        updateRoomActivity(room);
+        const { name } = message.payload || {};
+        if (!ws.isAdmin) {
+          ws.send(
+            JSON.stringify({
+              type: "chat_timeout_result",
+              payload: { success: false, message: "Admin required." },
+            })
+          );
+          return;
+        }
+        if (!name) {
+          ws.send(
+            JSON.stringify({
+              type: "chat_timeout_result",
+              payload: { success: false, message: "Player name required." },
+            })
+          );
+          return;
+        }
+        const timeoutUntil = Date.now() + 5 * 60 * 1000;
+        const chatTimeouts = getChatTimeouts(room);
+        chatTimeouts.set(name, timeoutUntil);
+        broadcast(room, {
+          type: "chat_restrictions_update",
+          payload: {
+            chatTimeouts: Object.fromEntries(chatTimeouts),
+            chatReactionsDisabled: Object.fromEntries(getChatReactionsDisabled(room)),
+          },
+        });
+        ws.send(
+          JSON.stringify({
+            type: "chat_timeout_result",
+            payload: { success: true, message: `Chat timed out for ${name}.` },
+          })
+        );
+        return;
+      }
+
+      if (message?.type === "chat_reaction_disable") {
+        updateRoomActivity(room);
+        const { name, disabled } = message.payload || {};
+        if (!ws.isAdmin) {
+          ws.send(
+            JSON.stringify({
+              type: "chat_reaction_disable_result",
+              payload: { success: false, message: "Admin required." },
+            })
+          );
+          return;
+        }
+        if (!name) {
+          ws.send(
+            JSON.stringify({
+              type: "chat_reaction_disable_result",
+              payload: { success: false, message: "Player name required." },
+            })
+          );
+          return;
+        }
+        const chatReactionsDisabled = getChatReactionsDisabled(room);
+        if (disabled) {
+          chatReactionsDisabled.set(name, true);
+        } else {
+          chatReactionsDisabled.delete(name);
+        }
+        broadcast(room, {
+          type: "chat_restrictions_update",
+          payload: {
+            chatTimeouts: Object.fromEntries(getChatTimeouts(room)),
+            chatReactionsDisabled: Object.fromEntries(chatReactionsDisabled),
+          },
+        });
+        ws.send(
+          JSON.stringify({
+            type: "chat_reaction_disable_result",
+            payload: { success: true, message: `Reactions ${disabled ? "disabled" : "enabled"} for ${name}.` },
+          })
+        );
         return;
       }
     });

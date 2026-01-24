@@ -11,13 +11,17 @@ type HeaderBarProps = {
   adminActive: boolean;
   adminPopoverOpen: boolean;
   adminPopoverContent: React.ReactNode | null;
-  players: Array<{ name: string; connected: boolean }>;
+  players: Array<{ name: string; connected: boolean; observer?: boolean }>;
   adminName: string | null;
   onAdminClick: () => void;
   onLeaveRoom: () => void;
   onVotingToggle?: () => void;
   onPresentationToggle?: () => void;
   timer: { endTime: number; duration: number } | null;
+  observerEnabled: boolean;
+  onObserverToggle: () => void;
+  soundMuted: boolean;
+  onSoundToggle: () => void;
 };
 
 function hashString(value: string) {
@@ -54,6 +58,10 @@ export default function HeaderBar({
   onVotingToggle,
   onPresentationToggle,
   timer,
+  observerEnabled,
+  onObserverToggle,
+  soundMuted,
+  onSoundToggle,
 }: HeaderBarProps) {
   const [pendingLeave, setPendingLeave] = useState(false);
 
@@ -103,13 +111,15 @@ export default function HeaderBar({
             <ul className="players-list-header">
               {sortedPlayers.map((player) => {
                 const name = typeof player === 'string' ? player : player.name;
+                const observer = typeof player === 'string' ? false : player.observer;
                 return (
-                <li key={name} className="player-pill" style={playerStyle(name)}>
-                  {name}
-                  {adminName && name.trim().toLowerCase() === adminName.trim().toLowerCase() && (
-                    <span className="admin-crown">👑</span>
-                  )}
-                </li>
+                  <li key={name} className="player-pill" style={playerStyle(name)}>
+                    {name}
+                    {observer && <span className="observer-icon" title="Observer">👁️</span>}
+                    {adminName && name.trim().toLowerCase() === adminName.trim().toLowerCase() && (
+                      <span className="admin-crown">👑</span>
+                    )}
+                  </li>
                 );
               })}
             </ul>
@@ -118,6 +128,22 @@ export default function HeaderBar({
       </div>
       {!viewMode && (
         <div className="status-group">
+          <button
+            type="button"
+            className={`ghost ${soundMuted ? "danger" : ""}`}
+            onClick={onSoundToggle}
+            title={soundMuted ? "Unmute sounds" : "Mute sounds"}
+          >
+            {soundMuted ? "🔇" : "🔊"}
+          </button>
+          <label className="observer-toggle">
+            <input
+              type="checkbox"
+              checked={observerEnabled}
+              onChange={onObserverToggle}
+            />
+            Observer
+          </label>
           <button 
             key="leave-room-button"
             className={`ghost ${pendingLeave ? "danger pending-confirm" : ""}`}

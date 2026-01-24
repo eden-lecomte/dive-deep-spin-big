@@ -15,6 +15,7 @@ type GamesListPanelProps = {
   landedItemId?: string | null;
   usedItemIds?: string[];
   onSetVote?: (itemId: string, level: VoteLevel) => void;
+  soundMuted?: boolean;
 };
 
 export default function GamesListPanel({
@@ -28,7 +29,13 @@ export default function GamesListPanel({
   landedItemId = null,
   usedItemIds = [],
   onSetVote,
+  soundMuted = false,
 }: GamesListPanelProps) {
+  const playItemSound = (soundUrl?: string) => {
+    if (!soundUrl || soundMuted) return;
+    const audio = new Audio(soundUrl);
+    audio.play().catch(() => null);
+  };
   // Calculate total weight for each item (base weight + vote weights)
   // This matches the calculation in HomePage.tsx for weightedItems
   const itemsWithWeights = useMemo(() => {
@@ -102,6 +109,18 @@ export default function GamesListPanel({
             >
               <div className="game-vote-header">
                 <span className={`game-name ${isIneligible ? 'game-name-disabled' : ''}`}>
+                  {item.imageUrl && (
+                    <img
+                      className="game-inline-image"
+                      src={item.imageUrl}
+                      alt=""
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        playItemSound(item.soundUrl);
+                      }}
+                      title={item.soundUrl ? "Play sound" : undefined}
+                    />
+                  )}
                   {hiddenLabels ? "Mystery item" : item.label}
                   {isIneligible && (
                     <span className="disabled-badge" title="Already spun - not available">

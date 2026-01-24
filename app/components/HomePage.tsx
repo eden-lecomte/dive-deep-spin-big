@@ -13,6 +13,7 @@ import ChatPanel from "./panels/ChatPanel";
 import BulletinBoardPanel from "./panels/BulletinBoardPanel";
 import BulletinBoardDisplay from "./panels/BulletinBoardDisplay";
 import VictoryModal from "./VictoryModal";
+import ResultModal from "./ResultModal";
 import {
   COLORS,
   DEFAULT_ITEMS,
@@ -40,6 +41,42 @@ export default function Home() {
   const roomParam = searchParams.get("room");
   const room = roomParam ?? "";
   const viewParam = searchParams.get("view") === "1";
+
+  const normalizeImageUrl = useCallback((value?: string) => {
+    const trimmed = (value || "").trim();
+    if (!trimmed) return undefined;
+    const lower = trimmed.toLowerCase();
+    if (
+      lower.startsWith("http://") ||
+      lower.startsWith("https://") ||
+      lower.startsWith("data:") ||
+      trimmed.startsWith("/")
+    ) {
+      return trimmed;
+    }
+    if (lower.startsWith("assets/images/")) {
+      return `/${trimmed}`;
+    }
+    return `/assets/images/${trimmed}`;
+  }, []);
+
+  const normalizeSoundUrl = useCallback((value?: string) => {
+    const trimmed = (value || "").trim();
+    if (!trimmed) return undefined;
+    const lower = trimmed.toLowerCase();
+    if (
+      lower.startsWith("http://") ||
+      lower.startsWith("https://") ||
+      lower.startsWith("data:") ||
+      trimmed.startsWith("/")
+    ) {
+      return trimmed;
+    }
+    if (lower.startsWith("assets/sfx/")) {
+      return `/${trimmed}`;
+    }
+    return `/assets/sfx/${trimmed}`;
+  }, []);
 
   // Store current room and timestamp in localStorage when in a room
   useEffect(() => {
@@ -84,8 +121,13 @@ export default function Home() {
     `wheel:voting:${room}`,
     false
   );
+  const [soundMuted, setSoundMuted] = useLocalStorageState<boolean>(
+    `wheel:soundMuted`,
+    false
+  );
   const [timer, setTimer] = useState<{ endTime: number; duration: number } | null>(null);
   const previousTimerRef = useRef<{ endTime: number; duration: number } | null>(null);
+  const fiveMinuteAlertPlayedRef = useRef(false);
   
   // Calculate time remaining for timer display
   const timeRemaining = useMemo(() => {
@@ -97,14 +139,20 @@ export default function Home() {
   useEffect(() => {
     // Check if timer just started (was null, now has value)
     if (timer && !previousTimerRef.current) {
-      playTimerStartSound();
+      fiveMinuteAlertPlayedRef.current = false;
+      if (!soundMuted) {
+        playTimerStartSound();
+      }
     }
     // Check if timer just ended (had value, now null)
     if (!timer && previousTimerRef.current) {
-      playTimerEndSound();
+      if (!soundMuted) {
+        playTimerEndSound();
+      }
+      fiveMinuteAlertPlayedRef.current = false;
     }
     previousTimerRef.current = timer;
-  }, [timer]);
+  }, [soundMuted, timer]);
   
   // Update time remaining every second
   const [displayTimeRemaining, setDisplayTimeRemaining] = useState<number | null>(null);
@@ -120,6 +168,17 @@ export default function Home() {
     }, 1000);
     return () => clearInterval(interval);
   }, [timeRemaining, timer]);
+
+  useEffect(() => {
+    if (!timer || displayTimeRemaining === null || soundMuted) return;
+    if (fiveMinuteAlertPlayedRef.current) return;
+    const fiveMinutesMs = 5 * 60 * 1000;
+    if (displayTimeRemaining <= fiveMinutesMs && displayTimeRemaining > fiveMinutesMs - 1000) {
+      fiveMinuteAlertPlayedRef.current = true;
+      const audio = new Audio("/assets/sfx/five_mins_remaining.mp3");
+      audio.play().catch(() => null);
+    }
+  }, [displayTimeRemaining, soundMuted, timer]);
   
   // Check timer expiration on client side
   useEffect(() => {
@@ -148,6 +207,10 @@ export default function Home() {
   const [userName, setUserName] = useLocalStorageState<string>(
     `wheel:username`,
     ""
+  );
+  const [observerMode, setObserverMode] = useLocalStorageState<boolean>(
+    `wheel:observer:${room}`,
+    false
   );
   const [votesByItem, setVotesByItem] = useLocalStorageState<
     Record<string, VoteLevel>
@@ -188,6 +251,7 @@ export default function Home() {
     message: string;
   } | null>(null);
   const [victoryWinners, setVictoryWinners] = useState<string[] | null>(null);
+  const [showResultModal, setShowResultModal] = useState(false);
   const [toastMessages, setToastMessages] = useState<
     Array<{ id: string; message: string; type?: "success" | "error" }>
   >([]);
@@ -198,7 +262,7 @@ export default function Home() {
   const [adminName, setAdminName] = useState<string | null>(null);
   const [adminPin, setAdminPin] = useState("");
   const [players, setPlayers] = useState<
-    Array<{ name: string; connected: boolean }>
+    Array<{ name: string; connected: boolean; observer?: boolean }>
   >([]);
   const [playerStats, setPlayerStats] = useLocalStorageState<
     Record<string, { wins: number; losses: number }>
@@ -208,6 +272,10 @@ export default function Home() {
   const [chatMessages, setChatMessages] = useState<
     Array<{ id: string; userName: string; text: string; timestamp: number }>
   >([]);
+  const [chatTimeouts, setChatTimeouts] = useState<Record<string, number>>({});
+  const [chatReactionsDisabled, setChatReactionsDisabled] = useState<
+    Record<string, boolean>
+  >({});
   const lastItemsSourceRef = useRef<"local" | "server" | null>(null);
   const itemsRef = useRef<WheelItem[]>(items);
   const suppressSettingsBroadcastRef = useRef(false);
@@ -228,11 +296,14 @@ export default function Home() {
   const pendingSpinRef = useRef(false);
   const spinTriggerHandled = useRef(false);
   const lastSpinId = useRef<string | null>(null);
+  const spinReplayRef = useRef(false);
   const teamIntervalRef = useRef<number | null>(null);
   const teamTimeoutRef = useRef<number | null>(null);
   const manualUnlockAttemptedRef = useRef(false);
   const adminUnlockedRef = useRef(adminUnlocked);
   const adminPinSessionRef = useRef(adminPinSession);
+  const pendingRoomActionRef = useRef<"create" | "join" | null>(null);
+  const pendingRoomCodeRef = useRef<string | null>(null);
 
   // Keep refs in sync with state
   useEffect(() => {
@@ -245,13 +316,13 @@ export default function Home() {
 
   const effectiveRoomVotes = useMemo(() => {
     const name = userName.trim();
-    if (!name) return roomVotes;
+    if (!name || observerMode) return roomVotes;
     if (roomVotes[name] === votesByItem) return roomVotes;
     return {
       ...roomVotes,
       [name]: votesByItem,
     };
-  }, [roomVotes, userName, votesByItem]);
+  }, [observerMode, roomVotes, userName, votesByItem]);
 
   const voteTotals = useMemo(() => {
     const totals: Record<string, number> = {};
@@ -322,9 +393,19 @@ export default function Home() {
 
   const hiddenLabels = mysteryEnabled;
   const teamCandidates = useMemo(() => {
-    const names = players.map((p) => (typeof p === "string" ? p : p.name));
+    const names = players
+      .filter((player) => !player.observer)
+      .map((p) => (typeof p === "string" ? p : p.name));
     return names.map((name) => name.trim()).filter(Boolean);
   }, [players]);
+
+  const currentUserName = userName.trim();
+  const chatMutedUntil = currentUserName
+    ? chatTimeouts[currentUserName] || 0
+    : 0;
+  const reactionsDisabledForMe = currentUserName
+    ? Boolean(chatReactionsDisabled[currentUserName])
+    : false;
 
   const spinToItem = useCallback(
     (itemId: string, targetRotation: number) => {
@@ -363,6 +444,7 @@ export default function Home() {
         setStatusMessage("Only the admin can spin this room.");
         return;
       }
+      spinReplayRef.current = false;
       const excluded = new Set<string>();
       if (noRepeatMode === "consecutive" && landedItemId) {
         excluded.add(landedItemId);
@@ -488,7 +570,15 @@ export default function Home() {
         ws.send(
           JSON.stringify({
             type: "presence",
-            payload: { name: userName },
+            payload: { name: userName, observer: observerMode },
+          })
+        );
+      }
+      if (pendingRoomActionRef.current && pendingRoomCodeRef.current) {
+        ws.send(
+          JSON.stringify({
+            type: "check_room_status",
+            payload: { roomToCheck: pendingRoomCodeRef.current },
           })
         );
       }
@@ -520,6 +610,7 @@ export default function Home() {
           if (!itemId || typeof targetRotation !== "number") return;
           if (spinId && lastSpinId.current === spinId) return;
           lastSpinId.current = spinId || null;
+          spinReplayRef.current = Boolean(replay);
           if (replay) {
             setRotation(targetRotation);
             setLandedItemId(itemId);
@@ -540,6 +631,8 @@ export default function Home() {
             settings,
             chatMessages,
             bulletinBoard: syncBulletinBoard,
+            chatTimeouts: syncChatTimeouts,
+            chatReactionsDisabled: syncChatReactionsDisabled,
             clientId,
             clientIsAdmin,
             timer: syncTimer,
@@ -562,9 +655,11 @@ export default function Home() {
             setAdminName(adminName);
           }
           if (Array.isArray(players)) {
-            // Handle both old format (strings) and new format (objects with name/connected)
+            // Handle both old format (strings) and new format (objects with name/connected/observer)
             const normalizedPlayers = players.map((p) =>
-              typeof p === "string" ? { name: p, connected: true } : p
+              typeof p === "string"
+                ? { name: p, connected: true, observer: false }
+                : { observer: false, ...p }
             );
             setPlayers(normalizedPlayers);
           }
@@ -605,6 +700,12 @@ export default function Home() {
           if (Array.isArray(chatMessages)) {
             setChatMessages(chatMessages);
           }
+          if (syncChatTimeouts) {
+            setChatTimeouts(syncChatTimeouts);
+          }
+          if (syncChatReactionsDisabled) {
+            setChatReactionsDisabled(syncChatReactionsDisabled);
+          }
           if (syncBulletinBoard !== undefined) {
             previousBulletinBoardRef.current = syncBulletinBoard;
             setBulletinBoard(syncBulletinBoard);
@@ -632,7 +733,11 @@ export default function Home() {
           const { content } = message.payload || {};
           const newContent = content || null;
           // Only play sound if content actually changed (not just initial sync)
-          if (previousBulletinBoardRef.current !== newContent && previousBulletinBoardRef.current !== null) {
+          if (
+            previousBulletinBoardRef.current !== newContent &&
+            previousBulletinBoardRef.current !== null &&
+            !soundMuted
+          ) {
             playNotificationSound();
           }
           previousBulletinBoardRef.current = newContent;
@@ -666,6 +771,24 @@ export default function Home() {
             ]);
           }
         }
+        if (message?.type === "chat_restrictions_update") {
+          const { chatTimeouts, chatReactionsDisabled } = message.payload || {};
+          if (chatTimeouts) {
+            setChatTimeouts(chatTimeouts);
+          }
+          if (chatReactionsDisabled) {
+            setChatReactionsDisabled(chatReactionsDisabled);
+          }
+        }
+        if (
+          message?.type === "chat_timeout_result" ||
+          message?.type === "chat_reaction_disable_result"
+        ) {
+          const { message: resultMessage } = message.payload || {};
+          if (resultMessage) {
+            setStatusMessage(resultMessage);
+          }
+        }
         if (message?.type === "roomVotes") {
           const { roomVotes } = message.payload || {};
           if (roomVotes) {
@@ -679,7 +802,15 @@ export default function Home() {
             teamState && !teamState.mode
               ? { ...teamState, mode: "teams" as const }
               : teamState;
-          setTeamState(normalizedTeamState ?? null);
+          if (!normalizedTeamState) {
+            setTeamState(null);
+            return;
+          }
+          if (!adminUnlockedRef.current && normalizedTeamState.mode === "teams") {
+            animateTeams(normalizedTeamState);
+            return;
+          }
+          setTeamState(normalizedTeamState);
         }
         if (message?.type === "admin_status") {
           const { claimed, adminName: statusAdminName } = message.payload || {};
@@ -751,9 +882,11 @@ export default function Home() {
         if (message?.type === "presence") {
           const { players } = message.payload || {};
           if (Array.isArray(players)) {
-            // Handle both old format (strings) and new format (objects with name/connected)
+            // Handle both old format (strings) and new format (objects with name/connected/observer)
             const normalizedPlayers = players.map((p) =>
-              typeof p === "string" ? { name: p, connected: true } : p
+              typeof p === "string"
+                ? { name: p, connected: true, observer: false }
+                : { observer: false, ...p }
             );
             setPlayers(normalizedPlayers);
           }
@@ -1010,12 +1143,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!landedItem) return;
-    if (landedItem.soundUrl) {
-      const audio = new Audio(landedItem.soundUrl);
-      audio.play().catch(() => null);
-    }
-  }, [landedItem]);
+    if (!landedItem || isSpinning) return;
+    if (spinReplayRef.current) return;
+    setShowResultModal(true);
+  }, [isSpinning, landedItem]);
 
   useEffect(() => {
     if (!socketReady) return;
@@ -1024,11 +1155,11 @@ export default function Home() {
       wsRef.current.send(
         JSON.stringify({
           type: "presence",
-          payload: { name: name || null },
+          payload: { name: name || null, observer: observerMode },
         })
       );
     }
-  }, [socketReady, userName]);
+  }, [observerMode, socketReady, userName]);
 
   useEffect(() => {
     if (adminPinSession) {
@@ -1128,6 +1259,39 @@ export default function Home() {
         window.clearTimeout(teamTimeoutRef.current);
       }
     };
+  }, []);
+
+  const animateTeams = useCallback((finalState: TeamState) => {
+    const allPlayers = [...finalState.teamA, ...finalState.teamB];
+    if (!allPlayers.length) {
+      setTeamState(finalState);
+      return;
+    }
+    setTeamShuffle(true);
+    if (teamIntervalRef.current) {
+      window.clearInterval(teamIntervalRef.current);
+    }
+    if (teamTimeoutRef.current) {
+      window.clearTimeout(teamTimeoutRef.current);
+    }
+    const shuffleOnce = () => {
+      const shuffled = shuffleArray(allPlayers);
+      const mid = Math.ceil(shuffled.length / 2);
+      setTeamState({
+        mode: "teams",
+        teamA: shuffled.slice(0, mid),
+        teamB: shuffled.slice(mid),
+      });
+    };
+    shuffleOnce();
+    teamIntervalRef.current = window.setInterval(shuffleOnce, 140);
+    teamTimeoutRef.current = window.setTimeout(() => {
+      if (teamIntervalRef.current) {
+        window.clearInterval(teamIntervalRef.current);
+      }
+      setTeamState(finalState);
+      setTeamShuffle(false);
+    }, 1600);
   }, []);
 
   const createTeams = useCallback(() => {
@@ -1233,7 +1397,7 @@ export default function Home() {
     wsRef.current.send(
       JSON.stringify({
         type: "admin_claim",
-        payload: { name: userName.trim(), pin: pinValue },
+        payload: { name: userName.trim(), pin: pinValue, items: itemsRef.current },
       })
     );
   }, [adminClaimed, adminPin, adminUnlocked, setAdminPinSession, userName]);
@@ -1394,8 +1558,8 @@ export default function Home() {
           id: item.id || randomId(),
           label: item.label.trim(),
           weight: typeof item.weight === "number" ? item.weight : 1,
-          imageUrl: item.imageUrl || undefined,
-          soundUrl: item.soundUrl || undefined,
+          imageUrl: normalizeImageUrl(item.imageUrl),
+          soundUrl: normalizeSoundUrl(item.soundUrl),
         }))
         .filter((item) => item.label);
       if (!nextItems.length) {
@@ -1413,16 +1577,19 @@ export default function Home() {
     [pushItemsUpdate, setItems]
   );
 
-  const handleSendChatMessage = useCallback((text: string, userName: string) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "chat_message",
-          payload: { text, userName },
-        })
-      );
-    }
-  }, []);
+  const handleSendChatMessage = useCallback(
+    (text: string, userName: string, isReaction = false) => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "chat_message",
+            payload: { text, userName, isReaction },
+          })
+        );
+      }
+    },
+    []
+  );
 
   const handleImportError = useCallback((message: string) => {
     setStatusMessage(message);
@@ -1469,6 +1636,50 @@ export default function Home() {
         JSON.stringify({
           type: "player_kick",
           payload: { playerName },
+        })
+      );
+    },
+    [adminUnlocked]
+  );
+
+  const timeoutChatForPlayer = useCallback(
+    (playerName: string) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        setStatusMessage("Not connected to server yet.");
+        return;
+      }
+      if (!adminUnlocked) {
+        setStatusMessage(
+          "You must be unlocked as admin to perform this action."
+        );
+        return;
+      }
+      wsRef.current.send(
+        JSON.stringify({
+          type: "chat_timeout",
+          payload: { name: playerName },
+        })
+      );
+    },
+    [adminUnlocked]
+  );
+
+  const toggleReactionsForPlayer = useCallback(
+    (playerName: string, disabled: boolean) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        setStatusMessage("Not connected to server yet.");
+        return;
+      }
+      if (!adminUnlocked) {
+        setStatusMessage(
+          "You must be unlocked as admin to perform this action."
+        );
+        return;
+      }
+      wsRef.current.send(
+        JSON.stringify({
+          type: "chat_reaction_disable",
+          payload: { name: playerName, disabled },
         })
       );
     },
@@ -1640,10 +1851,19 @@ export default function Home() {
   }, [setAdminPinSession, setAdminUnlocked]);
 
   function updateItem(id: string, patch: Partial<WheelItem>) {
+    const normalizedPatch = {
+      ...patch,
+      ...(patch.imageUrl !== undefined
+        ? { imageUrl: normalizeImageUrl(patch.imageUrl) }
+        : {}),
+      ...(patch.soundUrl !== undefined
+        ? { soundUrl: normalizeSoundUrl(patch.soundUrl) }
+        : {}),
+    };
     lastItemsSourceRef.current = "local";
     setItems((prev) => {
       const nextItems = prev.map((item) =>
-        item.id === id ? { ...item, ...patch } : item
+        item.id === id ? { ...item, ...normalizedPatch } : item
       );
       pushItemsUpdate(nextItems);
       return nextItems;
@@ -1667,13 +1887,60 @@ export default function Home() {
   function addItem(newItem: Omit<WheelItem, "id">) {
     lastItemsSourceRef.current = "local";
     setItems((prev) => {
-      const nextItems = [...prev, { id: randomId(), ...newItem }];
+      const nextItems = [
+        ...prev,
+        {
+          id: randomId(),
+          ...newItem,
+          imageUrl: normalizeImageUrl(newItem.imageUrl),
+          soundUrl: normalizeSoundUrl(newItem.soundUrl),
+        },
+      ];
       pushItemsUpdate(nextItems);
       return nextItems;
     });
   }
 
+  const clearMyVotes = useCallback(
+    (reason?: string) => {
+      const name = userName.trim();
+      setVotesByItem({});
+      if (!name) return;
+      setRoomVotes((prev) => {
+        if (!prev[name]) return prev;
+        const updated = { ...prev };
+        delete updated[name];
+        return updated;
+      });
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "clear_votes",
+            payload: { name },
+          })
+        );
+      }
+      if (reason) {
+        setStatusMessage(reason);
+      }
+    },
+    [setRoomVotes, setVotesByItem, userName]
+  );
+
+  useEffect(() => {
+    if (!observerMode) return;
+    clearMyVotes("Observer mode enabled. Your votes were removed.");
+  }, [clearMyVotes, observerMode]);
+
   function setVote(itemId: string, level: VoteLevel) {
+    if (observerMode) {
+      setStatusMessage("Observers cannot vote.");
+      return;
+    }
+    if (!votingEnabled) {
+      setStatusMessage("Voting is disabled.");
+      return;
+    }
     setVotesByItem((prev) => {
       const next = Object.fromEntries(
         Object.entries(prev).filter(([, value]) => value !== level)
@@ -1739,8 +2006,8 @@ export default function Home() {
     addItem({
       label: draftItem.label.trim(),
       weight: Number(draftItem.weight) || 1,
-      imageUrl: draftItem.imageUrl.trim() || undefined,
-      soundUrl: draftItem.soundUrl.trim() || undefined,
+      imageUrl: normalizeImageUrl(draftItem.imageUrl),
+      soundUrl: normalizeSoundUrl(draftItem.soundUrl),
     });
     setDraftItem({ label: "", weight: 1, imageUrl: "", soundUrl: "" });
   }
@@ -1760,6 +2027,8 @@ export default function Home() {
   const [checkingRecentRoom, setCheckingRecentRoom] = useState(false);
   const [roomExists, setRoomExists] = useState<boolean | null>(null);
   const [checkingRoom, setCheckingRoom] = useState(false);
+  const roomCheckTimerRef = useRef<number | null>(null);
+  const roomCheckTimeoutRef = useRef<number | null>(null);
 
   // Handle reconnecting state when we have a room param
   // Only show reconnect screen on initial page load, not on subsequent WebSocket disconnects
@@ -1862,7 +2131,7 @@ export default function Home() {
       typeof window !== "undefined"
         ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${
             window.location.host
-          }/ws?room=${lastRoom}`
+          }/ws?room=default`
         : "";
 
     if (!wsUrl) {
@@ -1871,6 +2140,12 @@ export default function Home() {
     }
 
     const checkWs = new WebSocket(wsUrl);
+    let resolved = false;
+    const timeout = window.setTimeout(() => {
+      if (resolved) return;
+      setCheckingRecentRoom(false);
+      checkWs.close();
+    }, 1000);
 
     checkWs.onopen = () => {
       checkWs.send(
@@ -1891,10 +2166,14 @@ export default function Home() {
               room: lastRoom,
               hasActivePlayers: hasActivePlayers || false,
             });
+            resolved = true;
           }
+        } else {
+          return;
         }
       } catch (e) {
         // Ignore parse errors
+        return;
       }
       checkWs.close();
       setCheckingRecentRoom(false);
@@ -1903,11 +2182,15 @@ export default function Home() {
     checkWs.onerror = () => {
       setRecentRoom(null);
       setCheckingRecentRoom(false);
+      resolved = true;
+      window.clearTimeout(timeout);
       checkWs.close();
     };
 
     checkWs.onclose = () => {
       setCheckingRecentRoom(false);
+      resolved = true;
+      window.clearTimeout(timeout);
     };
 
     return () => {
@@ -1919,6 +2202,84 @@ export default function Home() {
       }
     };
   }, [roomParam]);
+
+  useEffect(() => {
+    if (roomParam) return;
+    const code = roomInput.trim().toUpperCase();
+    setRoomExists(null);
+    if (!code) {
+      setCheckingRoom(false);
+      return;
+    }
+    if (roomCheckTimerRef.current) {
+      window.clearTimeout(roomCheckTimerRef.current);
+    }
+    setCheckingRoom(true);
+    roomCheckTimerRef.current = window.setTimeout(() => {
+      const payload = { type: "check_room_status", payload: { roomToCheck: code } };
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify(payload));
+      } else {
+        const wsUrl =
+          typeof window !== "undefined"
+            ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${
+                window.location.host
+              }/ws?room=default`
+            : "";
+        if (!wsUrl) {
+          setCheckingRoom(false);
+          return;
+        }
+        const checkWs = new WebSocket(wsUrl);
+        let resolved = false;
+        const timeout = window.setTimeout(() => {
+          if (resolved) return;
+          setCheckingRoom(false);
+          checkWs.close();
+        }, 1000);
+        checkWs.onopen = () => {
+          checkWs.send(JSON.stringify(payload));
+        };
+        checkWs.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            if (message.type === "room_status") {
+              const { room, hasActivePlayers } = message.payload || {};
+              if (room === code) {
+                setRoomExists(Boolean(hasActivePlayers));
+                resolved = true;
+              }
+            } else {
+              return;
+            }
+          } catch {
+            // ignore
+            return;
+          }
+          setCheckingRoom(false);
+          window.clearTimeout(timeout);
+          checkWs.close();
+        };
+        checkWs.onerror = () => {
+          setCheckingRoom(false);
+          resolved = true;
+          window.clearTimeout(timeout);
+          checkWs.close();
+        };
+        checkWs.onclose = () => {
+          setCheckingRoom(false);
+          resolved = true;
+          window.clearTimeout(timeout);
+        };
+      }
+    }, 400);
+
+    return () => {
+      if (roomCheckTimerRef.current) {
+        window.clearTimeout(roomCheckTimerRef.current);
+      }
+    };
+  }, [roomInput, roomParam]);
 
   function handleSetPlayerName() {
     const name = playerNameInput.trim();
@@ -1938,19 +2299,9 @@ export default function Home() {
     // Check if room already exists
     setCheckingRoom(true);
     pendingRoomActionRef.current = 'create';
+    pendingRoomCodeRef.current = code;
     setStatusMessage(null);
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "check_room_status",
-          payload: { roomToCheck: code },
-        })
-      );
-    } else {
-      // If not connected, try to connect first
-      setStatusMessage("Connecting to server...");
-      // The room check will happen after connection
-    }
+    sendRoomCheck(code);
   }
 
   function joinRoom() {
@@ -1965,21 +2316,15 @@ export default function Home() {
     // Check if room exists first
     setCheckingRoom(true);
     pendingRoomActionRef.current = 'join';
+    pendingRoomCodeRef.current = code;
     setStatusMessage(null);
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "check_room_status",
-          payload: { roomToCheck: code },
-        })
-      );
-    } else {
-      setStatusMessage("Connecting to server...");
-    }
+    sendRoomCheck(code);
   }
-  
+
   const handleRoomCheckResult = useCallback((roomCode: string, hasActivePlayers: boolean, isCreating: boolean) => {
     setCheckingRoom(false);
+    pendingRoomActionRef.current = null;
+    pendingRoomCodeRef.current = null;
     const name = playerNameInput.trim();
     if (!name) return;
     
@@ -2011,6 +2356,78 @@ export default function Home() {
       applyQueryParams({ room: roomCode });
     }
   }, [playerNameInput, applyQueryParams]);
+
+  const sendRoomCheck = useCallback((code: string) => {
+    if (roomCheckTimeoutRef.current) {
+      window.clearTimeout(roomCheckTimeoutRef.current);
+    }
+    roomCheckTimeoutRef.current = window.setTimeout(() => {
+      setCheckingRoom(false);
+      setStatusMessage("Server not responding. Try again.");
+    }, 1000);
+
+    const payload = { type: "check_room_status", payload: { roomToCheck: code } };
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(payload));
+      return;
+    }
+
+    const wsUrl =
+      typeof window !== "undefined"
+        ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${
+            window.location.host
+          }/ws?room=default`
+        : "";
+    if (!wsUrl) {
+      setCheckingRoom(false);
+      return;
+    }
+    const checkWs = new WebSocket(wsUrl);
+    let resolved = false;
+    checkWs.onopen = () => {
+      checkWs.send(JSON.stringify(payload));
+    };
+    checkWs.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === "room_status") {
+          const { room, hasActivePlayers } = message.payload || {};
+          if (room === code) {
+            setRoomExists(Boolean(hasActivePlayers));
+            handleRoomCheckResult(code, Boolean(hasActivePlayers), pendingRoomActionRef.current === "create");
+            resolved = true;
+          }
+        } else {
+          return;
+        }
+      } catch {
+        // ignore
+        return;
+      }
+      setCheckingRoom(false);
+      if (roomCheckTimeoutRef.current) {
+        window.clearTimeout(roomCheckTimeoutRef.current);
+      }
+      checkWs.close();
+    };
+    checkWs.onerror = () => {
+      setCheckingRoom(false);
+      setStatusMessage("Server not responding. Try again.");
+      resolved = true;
+      if (roomCheckTimeoutRef.current) {
+        window.clearTimeout(roomCheckTimeoutRef.current);
+      }
+      checkWs.close();
+    };
+    checkWs.onclose = () => {
+      if (roomCheckTimeoutRef.current) {
+        window.clearTimeout(roomCheckTimeoutRef.current);
+      }
+      if (!resolved) {
+        setCheckingRoom(false);
+      }
+    };
+  }, [handleRoomCheckResult]);
 
   function leaveRoom() {
     // Close WebSocket connection
@@ -2154,8 +2571,8 @@ export default function Home() {
               <button
                 className="primary"
                 onClick={joinRoom}
-                disabled={!roomInput.trim() || !playerNameInput.trim() || checkingRoom || roomExists === false}
-                title={roomExists === false ? "Room does not exist. Use 'Create new room' instead." : ""}
+                disabled={!roomInput.trim() || !playerNameInput.trim() || checkingRoom || roomExists !== true}
+                title={roomExists !== true ? "Room not found yet. Use 'Create new room' if it doesn't exist." : ""}
               >
                 {checkingRoom ? "Checking..." : "Join room"}
               </button>
@@ -2163,7 +2580,7 @@ export default function Home() {
             <button
               className="ghost"
               onClick={createRoomCode}
-              disabled={!playerNameInput.trim() || !roomInput.trim() || checkingRoom}
+              disabled={!playerNameInput.trim() || !roomInput.trim() || checkingRoom || roomExists === true}
               title={roomExists === true ? "Room already exists. Use 'Join room' instead." : ""}
             >
               {checkingRoom ? "Checking..." : "Create new room"}
@@ -2287,6 +2704,10 @@ export default function Home() {
         onVotingToggle={handleVotingToggle}
         onPresentationToggle={handlePresentationToggle}
         timer={timer}
+        observerEnabled={observerMode}
+        onObserverToggle={() => setObserverMode((prev) => !prev)}
+        soundMuted={soundMuted}
+        onSoundToggle={() => setSoundMuted((prev) => !prev)}
       />
       
       {displayTimeRemaining !== null && displayTimeRemaining > 0 && (
@@ -2396,6 +2817,22 @@ export default function Home() {
         />
       )}
 
+      {showResultModal && landedItem && (
+        <ResultModal
+          item={landedItem}
+          soundMuted={soundMuted}
+          onClose={() => setShowResultModal(false)}
+          onAutoCreateTeams={() => {
+            if (adminUnlocked) {
+              createTeams();
+            }
+          }}
+          teamState={teamState}
+          teamShuffle={teamShuffle}
+          adminUnlocked={adminUnlocked}
+        />
+      )}
+
       {socketReady && (
         <main>
           <div
@@ -2439,13 +2876,14 @@ export default function Home() {
                   items={items}
                   hiddenLabels={false}
                   roomVotes={effectiveRoomVotes}
-                  votingEnabled={votingEnabled}
+                  votingEnabled={votingEnabled && !observerMode}
                   votesByItem={votesByItem}
                   voteSummary={voteSummary}
                   noRepeatMode={noRepeatMode}
                   landedItemId={landedItemId}
                   usedItemIds={usedItemIds}
-                  onSetVote={setVote}
+                  onSetVote={observerMode ? undefined : setVote}
+                  soundMuted={soundMuted}
                 />
               </section>
             )}
@@ -2477,8 +2915,11 @@ export default function Home() {
                 socketReady={socketReady}
                 adminName={adminName}
                 playerStats={playerStats}
+                chatReactionsDisabled={chatReactionsDisabled}
                 onRenamePlayer={renamePlayer}
                 onKickPlayer={kickPlayer}
+                onTimeoutChat={timeoutChatForPlayer}
+                onToggleReactions={toggleReactionsForPlayer}
                 onAwardWin={awardPlayerWin}
                 onAwardLoss={awardPlayerLoss}
                 onResetStats={resetPlayerStats}
@@ -2528,6 +2969,9 @@ export default function Home() {
                 players={players}
                 onSendMessage={handleSendChatMessage}
                 messages={chatMessages}
+                chatMutedUntil={chatMutedUntil}
+                reactionsDisabled={reactionsDisabledForMe}
+                soundMuted={soundMuted}
               />
             </section>
           )}

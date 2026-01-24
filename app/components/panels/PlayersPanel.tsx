@@ -1,5 +1,5 @@
 type PlayersPanelProps = {
-  players: string[];
+  players: Array<{ name: string; observer?: boolean }>;
   adminName: string | null;
 };
 
@@ -25,8 +25,8 @@ export default function PlayersPanel({ players, adminName }: PlayersPanelProps) 
   // Sort players to put admin first
   const sortedPlayers = [...players].sort((a, b) => {
     if (!adminName) return 0;
-    const aIsAdmin = a.trim().toLowerCase() === adminName.trim().toLowerCase();
-    const bIsAdmin = b.trim().toLowerCase() === adminName.trim().toLowerCase();
+    const aIsAdmin = a.name.trim().toLowerCase() === adminName.trim().toLowerCase();
+    const bIsAdmin = b.name.trim().toLowerCase() === adminName.trim().toLowerCase();
     if (aIsAdmin && !bIsAdmin) return -1;
     if (!aIsAdmin && bIsAdmin) return 1;
     return 0;
@@ -37,10 +37,13 @@ export default function PlayersPanel({ players, adminName }: PlayersPanelProps) 
       <h3>Players</h3>
       {sortedPlayers.length ? (
         <ul className="players-list">
-          {sortedPlayers.map((name) => (
-            <li key={name} className="player-pill" style={playerStyle(name)}>
-              {name}
-              {adminName && name.trim().toLowerCase() === adminName.trim().toLowerCase() && (
+          {sortedPlayers.map((player) => (
+            <li key={player.name} className="player-pill" style={playerStyle(player.name)}>
+              {player.name}
+              {player.observer && (
+                <span className="observer-icon" title="Observer">👁️</span>
+              )}
+              {adminName && player.name.trim().toLowerCase() === adminName.trim().toLowerCase() && (
                 <span className="admin-crown">👑</span>
               )}
             </li>

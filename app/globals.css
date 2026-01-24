@@ -1,3 +1,8 @@
+.team-card ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 :root {
   color-scheme: dark;
   --bg: #0b0c10;
@@ -360,6 +365,32 @@ select {
   animation: slideUp 0.4s ease-out;
 }
 
+.result-modal-content {
+  width: 70vw;
+  height: 70vh;
+  max-width: 1200px;
+  max-height: 900px;
+  background: var(--panel);
+  border-radius: 24px;
+  border: 2px solid var(--accent);
+  box-shadow: 0 24px 60px rgba(111, 156, 255, 0.3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  padding: 48px;
+  animation: slideUp 0.4s ease-out;
+}
+
+.result-modal-content .victory-winners {
+  width: 100%;
+}
+
+.result-modal-content .team-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .victory-gif-container {
   width: 100%;
   height: 360px;
@@ -455,6 +486,26 @@ select {
   display: inline-flex;
   align-items: center;
   gap: 12px;
+}
+
+.observer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.observer-toggle input {
+  accent-color: var(--accent);
+}
+
+.observer-icon {
+  margin-left: 6px;
+  opacity: 0.7;
 }
 
 .admin-indicator {
@@ -870,16 +921,22 @@ button.ghost {
   gap: 16px;
 }
 
+.result-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .result-card h2 {
-  margin-bottom: 8px;
+  margin: 0;
 }
 
 .result-image {
-  width: 140px;
-  height: 100px;
-  object-fit: cover;
+  width: auto;
+  height: 64px;
+  max-width: 160px;
+  object-fit: contain;
   border-radius: 12px;
-  margin-top: 8px;
 }
 
 .result-meta {
@@ -1218,6 +1275,17 @@ button.ghost {
   gap: 12px;
 }
 
+.game-inline-image {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  margin-right: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 .game-vote-header-right {
   display: flex;
   align-items: center;
@@ -1546,6 +1614,12 @@ button.pending-confirm {
   gap: 6px;
 }
 
+.team-pill {
+  display: inline-flex;
+  width: auto;
+  max-width: 100%;
+}
+
 .admin-crown {
   font-size: 0.9rem;
   line-height: 1;
@@ -1743,6 +1817,27 @@ button.pending-confirm {
   z-index: 100;
   max-height: 200px;
   overflow-y: auto;
+}
+
+.reaction-cooldown-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 7, 10, 0.7);
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.reaction-cooldown-text {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--text);
+  background: rgba(21, 23, 30, 0.8);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border-radius: 999px;
 }
 
 .chat-reaction-item {
@@ -1969,7 +2064,7 @@ button.pending-confirm {
 
 .chat-reaction-text strong,
 .chat-reaction-text em,
-.chat-reaction-text span {
+.chat-reaction-text span:not(.reaction-emoji-display) {
   background: inherit;
   -webkit-background-clip: text;
   background-clip: text;
@@ -2014,6 +2109,13 @@ button.pending-confirm {
   font-size: 1.2em;
   margin-right: 4px;
   animation: sparkle-emoji 2s ease-in-out infinite;
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  -webkit-text-fill-color: initial;
+  color: inherit;
+  filter: none;
+  text-shadow: none;
 }
 
 .reaction-sparkle-char {
@@ -2081,12 +2183,51 @@ button.pending-confirm {
 .edit-row {
   display: grid;
   gap: 12px;
-  grid-template-columns: 1.2fr 0.4fr 1fr 1fr 120px;
+  grid-template-columns: 1.2fr 0.25fr 1fr 1fr 120px;
   align-items: center;
 }
 
 .edit-row input {
   width: 100%;
+}
+
+.weight-input {
+  max-width: 90px;
+}
+
+.image-input-with-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.asset-input-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.asset-input-stack select {
+  width: 100%;
+}
+
+.sound-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sound-select-row button {
+  min-width: 36px;
+  padding: 6px 10px;
+}
+
+.edit-image-preview {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
 }
 
 .edit-row button {
@@ -2096,7 +2237,7 @@ button.pending-confirm {
 }
 
 .add-row {
-  grid-template-columns: 1.2fr 0.4fr 1fr 1fr 120px;
+  grid-template-columns: 1.2fr 0.25fr 1fr 1fr 120px;
 }
 
 @media (max-width: 768px) {
