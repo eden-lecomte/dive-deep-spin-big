@@ -20,7 +20,7 @@ export default function BulletinBoardDisplay({
         <ReactMarkdown
           components={{
             // Style links to be visible
-            a: ({ node, ...props }) => (
+            a: (props) => (
               <a
                 {...props}
                 target="_blank"
@@ -32,27 +32,30 @@ export default function BulletinBoardDisplay({
               />
             ),
             // Style headers
-            h1: ({ node, ...props }) => (
+            h1: (props) => (
               <h1 {...props} style={{ fontSize: "1.5rem", marginTop: "16px", marginBottom: "8px" }} />
             ),
-            h2: ({ node, ...props }) => (
+            h2: (props) => (
               <h2 {...props} style={{ fontSize: "1.3rem", marginTop: "14px", marginBottom: "6px" }} />
             ),
-            h3: ({ node, ...props }) => (
+            h3: (props) => (
               <h3 {...props} style={{ fontSize: "1.1rem", marginTop: "12px", marginBottom: "4px" }} />
             ),
             // Style lists
-            ul: ({ node, ...props }) => (
+            ul: (props) => (
               <ul {...props} style={{ marginLeft: "20px", marginTop: "8px", marginBottom: "8px" }} />
             ),
-            ol: ({ node, ...props }) => (
+            ol: (props) => (
               <ol {...props} style={{ marginLeft: "20px", marginTop: "8px", marginBottom: "8px" }} />
             ),
             // Style code blocks
-            code: ({ node, inline, ...props }) =>
-              inline ? (
+            code: (props) => {
+              const { inline, ...rest } = props as React.HTMLAttributes<HTMLElement> & {
+                inline?: boolean;
+              };
+              return inline ? (
                 <code
-                  {...props}
+                  {...rest}
                   style={{
                     background: "var(--panel-strong)",
                     padding: "2px 6px",
@@ -62,7 +65,7 @@ export default function BulletinBoardDisplay({
                 />
               ) : (
                 <code
-                  {...props}
+                  {...rest}
                   style={{
                     display: "block",
                     background: "var(--panel-strong)",
@@ -73,9 +76,10 @@ export default function BulletinBoardDisplay({
                     marginBottom: "8px",
                   }}
                 />
-              ),
+              );
+            },
             // Style blockquotes
-            blockquote: ({ node, ...props }) => (
+            blockquote: (props) => (
               <blockquote
                 {...props}
                 style={{
