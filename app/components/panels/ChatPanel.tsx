@@ -224,7 +224,7 @@ export default function ChatPanel({
     if (typeof window === "undefined") return;
     if (soundMuted) return;
     const audio = new Audio(soundUrl);
-    audio.volume = 0.6;
+    audio.volume = 0.5;
     audio.play().catch(() => null);
   }, [soundMuted]);
 

@@ -176,6 +176,7 @@ export default function Home() {
     if (displayTimeRemaining <= fiveMinutesMs && displayTimeRemaining > fiveMinutesMs - 1000) {
       fiveMinuteAlertPlayedRef.current = true;
       const audio = new Audio("/assets/sfx/five_mins_remaining.mp3");
+      audio.volume = 0.5;
       audio.play().catch(() => null);
     }
   }, [displayTimeRemaining, soundMuted, timer]);
@@ -297,6 +298,9 @@ export default function Home() {
   const spinTriggerHandled = useRef(false);
   const lastSpinId = useRef<string | null>(null);
   const spinReplayRef = useRef(false);
+  const heartbeatIntervalRef = useRef<number | null>(null);
+  const heartbeatTimeoutRef = useRef<number | null>(null);
+  const heartbeatFailedRef = useRef(false);
   const teamIntervalRef = useRef<number | null>(null);
   const teamTimeoutRef = useRef<number | null>(null);
   const manualUnlockAttemptedRef = useRef(false);
@@ -562,6 +566,7 @@ export default function Home() {
       setDisconnectMessage(null); // Clear disconnect message on successful connection
       // Mark that we've connected at least once (so we don't show reconnect screen on subsequent disconnects)
       hasConnectedOnceRef.current = true;
+      heartbeatFailedRef.current = false;
       if (pendingSpinRef.current) {
         pendingSpinRef.current = false;
       }
@@ -599,11 +604,35 @@ export default function Home() {
       }
       // Reset the manual unlock flag after connection is established
       manualUnlockAttemptedRef.current = false;
+
+      if (heartbeatIntervalRef.current) {
+        window.clearInterval(heartbeatIntervalRef.current);
+      }
+      heartbeatIntervalRef.current = window.setInterval(() => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          return;
+        }
+        wsRef.current.send(JSON.stringify({ type: "ping" }));
+        if (heartbeatTimeoutRef.current) {
+          window.clearTimeout(heartbeatTimeoutRef.current);
+        }
+        heartbeatTimeoutRef.current = window.setTimeout(() => {
+          heartbeatFailedRef.current = true;
+          setDisconnectMessage("Connection lost. Heartbeat failed.");
+          wsRef.current?.close();
+        }, 5000);
+      }, 15000);
     };
 
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
+        if (message?.type === "pong") {
+          if (heartbeatTimeoutRef.current) {
+            window.clearTimeout(heartbeatTimeoutRef.current);
+          }
+          return;
+        }
         if (message?.type === "spin") {
           const { itemId, targetRotation, spinId, replay } =
             message.payload || {};
@@ -1022,29 +1051,32 @@ export default function Home() {
         setTimeout(() => {
           window.location.reload();
         }, 3000);
-      } else if (event.code === 1006 || event.code === 1001) {
-        // Abnormal closure or going away (server disconnect, network issue)
-        setDisconnectMessage(
-          "Connection lost. The server may have disconnected or there's a network issue."
-        );
-      } else if (event.code !== 1000) {
-        // Other non-normal closures
-        const reason = event.reason || "Unknown reason";
-        setDisconnectMessage(`Connection closed: ${reason}`);
-      } else {
-        // Normal closure (1000) - clear any previous disconnect message
-        setDisconnectMessage(null);
+      } else if (heartbeatFailedRef.current) {
+        // Only show disconnect screen if heartbeat failed
+        if (!disconnectMessage) {
+          setDisconnectMessage(
+            "Connection lost. The server may have disconnected or there's a network issue."
+          );
+        }
       }
     };
 
     ws.onerror = () => {
       setSocketReady(false);
-      setDisconnectMessage(
-        "WebSocket error occurred. Please check your connection."
-      );
+      if (heartbeatFailedRef.current) {
+        setDisconnectMessage(
+          "WebSocket error occurred. Please check your connection."
+        );
+      }
     };
 
     return () => {
+      if (heartbeatIntervalRef.current) {
+        window.clearInterval(heartbeatIntervalRef.current);
+      }
+      if (heartbeatTimeoutRef.current) {
+        window.clearTimeout(heartbeatTimeoutRef.current);
+      }
       ws.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

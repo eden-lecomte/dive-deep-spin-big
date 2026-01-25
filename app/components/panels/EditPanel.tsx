@@ -77,6 +77,7 @@ export default function EditPanel({
       previewAudioRef.current.currentTime = 0;
     }
     const audio = new Audio(url);
+    audio.volume = 0.5;
     previewAudioRef.current = audio;
     audio.play().catch(() => null);
   };

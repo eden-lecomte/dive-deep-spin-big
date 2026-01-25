@@ -66,7 +66,7 @@ export function playNotificationSound() {
     
     // Volume envelope
     gainNode.gain.setValueAtTime(0, audioContext.currentTime);
-    gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.01);
+    gainNode.gain.linearRampToValueAtTime(0.15, audioContext.currentTime + 0.01);
     gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.2);
     
     oscillator1.start(audioContext.currentTime);
@@ -119,7 +119,7 @@ export function playTimerStartSound() {
       
       // Volume envelope with smooth fade
       gain.gain.setValueAtTime(0, startTime);
-      gain.gain.linearRampToValueAtTime(0.25, startTime + 0.02);
+      gain.gain.linearRampToValueAtTime(0.125, startTime + 0.02);
       gain.gain.linearRampToValueAtTime(0, startTime + duration);
       
       osc.start(startTime);
@@ -175,7 +175,7 @@ export function playTimerEndSound() {
       
       // Volume envelope with smooth fade
       gain.gain.setValueAtTime(0, startTime);
-      gain.gain.linearRampToValueAtTime(0.3, startTime + 0.02);
+      gain.gain.linearRampToValueAtTime(0.15, startTime + 0.02);
       gain.gain.linearRampToValueAtTime(0, startTime + duration);
       
       osc.start(startTime);

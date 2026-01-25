@@ -34,6 +34,7 @@ export default function GamesListPanel({
   const playItemSound = (soundUrl?: string) => {
     if (!soundUrl || soundMuted) return;
     const audio = new Audio(soundUrl);
+    audio.volume = 0.5;
     audio.play().catch(() => null);
   };
   // Calculate total weight for each item (base weight + vote weights)
