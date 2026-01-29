@@ -47,7 +47,7 @@ const PRESET_REACTIONS = [
   { text: "EZ", emoji: "😎", animation: "shake" },
   { text: "Dive Deep Win Big", emoji: "🔥", animation: "glow", soundUrl: "/assets/sfx/troy-dive-deep-win-big.mp4" },
   { text: "Start the game already!", emoji: "🚀", animation: "bounce", soundUrl: "/assets/sfx/start-the-game.mp3" },
-  { text: "Nice one brother", emoji: "💯", animation: "pulse" },
+  { text: "Nice one brother", emoji: "💯", animation: "pulse", soundUrl: "/assets/sfx/niceonebrother.mp3" },
   { text: "SHEESH", emoji: "😤", animation: "shake", soundUrl: "/assets/sfx/mads-sheesh.mp4" },
   { text: "Get rekt motherfucker", emoji: "🤬", animation: "glow", soundUrl: "/assets/sfx/get-rekt.ogg" },
 ];
@@ -219,6 +219,7 @@ export default function ChatPanel({
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const reactionsRef = useRef<HTMLDivElement>(null);
   const playedReactionIdsRef = useRef<Set<string>>(new Set());
+  const hasMountedRef = useRef(false);
 
   const playReactionSound = useCallback((soundUrl: string) => {
     if (typeof window === "undefined") return;
@@ -230,7 +231,18 @@ export default function ChatPanel({
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    const isNearBottom = distanceFromBottom < 72;
+    if (isNearBottom) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [messages]);
 
   useEffect(() => {
@@ -471,6 +483,7 @@ export default function ChatPanel({
               disabled={!socketReady || !userName.trim() || isTimedOut}
               maxLength={500}
               className="chat-input"
+              autoFocus={false}
             />
             {showMentions && mentionSuggestions.length > 0 && (
               <div className="chat-mention-suggestions">
