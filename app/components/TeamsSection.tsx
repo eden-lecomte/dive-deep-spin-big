@@ -9,6 +9,7 @@ type TeamsSectionProps = {
   adminUnlocked: boolean;
   landedItemLabel?: string | null;
   showControls?: boolean;
+  playerStats?: Record<string, { wins: number; losses: number }>;
   onCreateTeams?: () => void;
   onCreateFreeForAll?: () => void;
   onAwardTeamWin?: (team: string[]) => void;
@@ -21,6 +22,7 @@ export default function TeamsSection({
   adminUnlocked,
   landedItemLabel,
   showControls = true,
+  playerStats,
   onCreateTeams,
   onCreateFreeForAll,
   onAwardTeamWin,
@@ -67,6 +69,8 @@ export default function TeamsSection({
     setRecentlyAwarded({ team, type: "loss" });
     onAwardTeamLoss?.(teamNames);
   };
+
+  const getWins = (name: string) => playerStats?.[name]?.wins ?? 0;
 
   return (
     <div className="team-area">
@@ -128,6 +132,9 @@ export default function TeamsSection({
                 <li key={`a-${name}-${index}`}>
                   <span className="player-pill team-pill" style={playerStyle(name)}>
                     {name}
+                    {getWins(name) > 0 && (
+                      <span className="player-win-count">🏆 {getWins(name)}</span>
+                    )}
                   </span>
                 </li>
               ))}
@@ -166,6 +173,9 @@ export default function TeamsSection({
                 <li key={`b-${name}-${index}`}>
                   <span className="player-pill team-pill" style={playerStyle(name)}>
                     {name}
+                    {getWins(name) > 0 && (
+                      <span className="player-win-count">🏆 {getWins(name)}</span>
+                    )}
                   </span>
                 </li>
               ))}

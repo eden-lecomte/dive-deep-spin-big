@@ -13,6 +13,7 @@ type ResultModalProps = {
   teamState: TeamState | null;
   teamShuffle: boolean;
   adminUnlocked: boolean;
+  playerStats?: Record<string, { wins: number; losses: number }>;
 };
 
 export default function ResultModal({
@@ -23,6 +24,7 @@ export default function ResultModal({
   teamState,
   teamShuffle,
   adminUnlocked,
+  playerStats,
 }: ResultModalProps) {
   const autoTeamsTriggeredRef = useRef(false);
 
@@ -80,6 +82,7 @@ export default function ResultModal({
               teamShuffle={teamShuffle}
               adminUnlocked={adminUnlocked}
               landedItemLabel={item.label}
+              playerStats={playerStats}
               showControls={false}
             />
           )}

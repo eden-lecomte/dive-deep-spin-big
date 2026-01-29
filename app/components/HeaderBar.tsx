@@ -13,6 +13,7 @@ type HeaderBarProps = {
   adminPopoverContent: React.ReactNode | null;
   players: Array<{ name: string; connected: boolean; observer?: boolean }>;
   adminName: string | null;
+  playerStats?: Record<string, { wins: number; losses: number }>;
   onAdminClick: () => void;
   onLeaveRoom: () => void;
   onVotingToggle?: () => void;
@@ -53,6 +54,7 @@ export default function HeaderBar({
   adminPopoverContent,
   players,
   adminName,
+  playerStats,
   onAdminClick,
   onLeaveRoom,
   onVotingToggle,
@@ -76,6 +78,8 @@ export default function HeaderBar({
     if (!aIsAdmin && bIsAdmin) return 1;
     return 0;
   });
+
+  const getWins = (name: string) => playerStats?.[name]?.wins ?? 0;
 
   function handleLeaveClick() {
     if (pendingLeave) {
@@ -115,6 +119,9 @@ export default function HeaderBar({
                 return (
                   <li key={name} className="player-pill" style={playerStyle(name)}>
                     {name}
+                    {getWins(name) > 0 && (
+                      <span className="player-win-count">🏆 {getWins(name)}</span>
+                    )}
                     {observer && <span className="observer-icon" title="Observer">👁️</span>}
                     {adminName && name.trim().toLowerCase() === adminName.trim().toLowerCase() && (
                       <span className="admin-crown">👑</span>

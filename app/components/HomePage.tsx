@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import HeaderBar from "./HeaderBar";
 import WheelSection from "./WheelSection";
+import TeamsSection from "./TeamsSection";
 import GamesListPanel from "./panels/GamesListPanel";
 import EditPanel from "./panels/EditPanel";
 import AdminAccessPanel from "./panels/AdminAccessPanel";
@@ -2731,6 +2732,7 @@ export default function Home() {
         adminPopoverContent={adminPopoverContent}
         players={players}
         adminName={adminName}
+        playerStats={playerStats}
         onAdminClick={() => setShowAdminAccess((prev) => !prev)}
         onLeaveRoom={leaveRoom}
         onVotingToggle={handleVotingToggle}
@@ -2862,6 +2864,7 @@ export default function Home() {
           teamState={teamState}
           teamShuffle={teamShuffle}
           adminUnlocked={adminUnlocked}
+          playerStats={playerStats}
         />
       )}
 
@@ -2891,6 +2894,8 @@ export default function Home() {
               presentationMode={presentationMode}
               votingEnabled={votingEnabled}
               voteTotals={voteTotals}
+              showLegend={!presentationMode}
+              playerStats={playerStats}
               onSpin={() => requestSpin("manual")}
               onResetRotation={() => setRotation(0)}
               onCreateTeams={createTeams}
@@ -2898,6 +2903,32 @@ export default function Home() {
               onAwardTeamWin={awardTeamWin}
               onAwardTeamLoss={awardTeamLoss}
             />
+
+            {presentationMode && !viewParam && (
+              <TeamsSection
+                teamState={teamState}
+                teamShuffle={teamShuffle}
+                adminUnlocked={adminUnlocked}
+                landedItemLabel={landedItem?.label}
+                playerStats={playerStats}
+                showControls={adminUnlocked}
+                onCreateTeams={createTeams}
+                onCreateFreeForAll={createFreeForAll}
+                onAwardTeamWin={awardTeamWin}
+                onAwardTeamLoss={awardTeamLoss}
+              />
+            )}
+
+            {viewParam && teamState && (
+              <TeamsSection
+                teamState={teamState}
+                teamShuffle={teamShuffle}
+                adminUnlocked={adminUnlocked}
+                landedItemLabel={landedItem?.label}
+                playerStats={playerStats}
+                showControls={false}
+              />
+            )}
 
             {!viewParam && (
               <section className="panel">

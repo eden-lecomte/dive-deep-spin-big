@@ -23,6 +23,8 @@ type WheelSectionProps = {
   presentationMode?: boolean;
   votingEnabled?: boolean;
   voteTotals?: Record<string, number>;
+  showLegend?: boolean;
+  playerStats?: Record<string, { wins: number; losses: number }>;
   onSpin: () => void;
   onResetRotation: () => void;
   onCreateTeams: () => void;
@@ -50,6 +52,8 @@ export default function WheelSection({
   presentationMode = false,
   votingEnabled = false,
   voteTotals = {},
+  showLegend = true,
+  playerStats,
   onSpin,
   onResetRotation,
   onCreateTeams,
@@ -115,7 +119,7 @@ export default function WheelSection({
         <div className="center-cap" />
       </div>
 
-      {presentationMode && legendData.length > 0 && (
+      {presentationMode && !viewMode && showLegend && legendData.length > 0 && (
         <div className="wheel-legend">
           <h3 className="legend-title">Odds</h3>
           <ul className="legend-list">
@@ -182,12 +186,13 @@ export default function WheelSection({
         </div>
       )}
 
-      {!viewMode && !isSpinning && (adminUnlocked || teamState) && (
+      {!viewMode && !presentationMode && !isSpinning && (adminUnlocked || teamState) && (
         <TeamsSection
           teamState={teamState}
           teamShuffle={teamShuffle}
           adminUnlocked={adminUnlocked}
           landedItemLabel={landedItem?.label}
+          playerStats={playerStats}
           showControls
           onCreateTeams={onCreateTeams}
           onCreateFreeForAll={onCreateFreeForAll}

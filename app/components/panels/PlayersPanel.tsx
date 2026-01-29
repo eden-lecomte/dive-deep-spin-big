@@ -1,6 +1,7 @@
 type PlayersPanelProps = {
   players: Array<{ name: string; observer?: boolean }>;
   adminName: string | null;
+  playerStats?: Record<string, { wins: number; losses: number }>;
 };
 
 function hashString(value: string) {
@@ -21,7 +22,7 @@ function playerStyle(name: string) {
   };
 }
 
-export default function PlayersPanel({ players, adminName }: PlayersPanelProps) {
+export default function PlayersPanel({ players, adminName, playerStats }: PlayersPanelProps) {
   // Sort players to put admin first
   const sortedPlayers = [...players].sort((a, b) => {
     if (!adminName) return 0;
@@ -32,6 +33,8 @@ export default function PlayersPanel({ players, adminName }: PlayersPanelProps) 
     return 0;
   });
 
+  const getWins = (name: string) => playerStats?.[name]?.wins ?? 0;
+
   return (
     <div className="panel-block">
       <h3>Players</h3>
@@ -40,6 +43,9 @@ export default function PlayersPanel({ players, adminName }: PlayersPanelProps) 
           {sortedPlayers.map((player) => (
             <li key={player.name} className="player-pill" style={playerStyle(player.name)}>
               {player.name}
+              {getWins(player.name) > 0 && (
+                <span className="player-win-count">🏆 {getWins(player.name)}</span>
+              )}
               {player.observer && (
                 <span className="observer-icon" title="Observer">👁️</span>
               )}
